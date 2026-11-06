@@ -5,7 +5,7 @@ import { bytes, count, date, folderName, size, speed } from '../format'
 import { Cover, FileMenu, FolderMenu, isPlayable, usePlayer, type Track } from '../player'
 import { navigate, useData, useName, useSettings, type FileSort } from '../state'
 
-type Sel = { kind: 'user'; value: string } | { kind: 'folder'; value: string; user?: string } | { kind: 'file'; value: number; user?: string }
+type Sel = { kind: 'user'; value: string } | { kind: 'folder'; value: string; user?: string } | { kind: 'file'; value: number; user?: string; row?: number }
 
 const SORTS: [string, string][] = [
   ['size', 'Total size'],
@@ -17,7 +17,7 @@ const SORTS: [string, string][] = [
 const EXPAND_ALL_LIMIT = 200
 
 function selFromParams(p: URLSearchParams): Sel | null {
-  if (p.get('file')) return { kind: 'file', value: Number(p.get('file')), user: p.get('user') ?? undefined }
+  if (p.get('file')) return { kind: 'file', value: Number(p.get('file')), user: p.get('user') ?? undefined, row: p.get('row') ? Number(p.get('row')) : undefined }
   if (p.get('folder')) return { kind: 'folder', value: p.get('folder')!, user: p.get('user') ?? undefined }
   if (p.get('user')) return { kind: 'user', value: p.get('user')! }
   return null
@@ -92,6 +92,7 @@ export default function Users({ params }: { params: URLSearchParams }) {
     else {
       if (s.user) p.user = s.user
       p[s.kind] = String(s.value)
+      if (s.kind === 'file' && s.row) p.row = String(s.row)  // which of several identical rows (repeat downloads)
     }
     navigate('users', p)
   }
@@ -193,11 +194,15 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
         <div className="children">
           {files.map((f, i) => {
             const t: Track = { id: f.file_id, name: f.name, folder: f.folder }
-            const nowPlaying = player.current?.id === f.file_id
+            // A file downloaded many times appears once per download; mark only one row.
+            const firstCopy = files.findIndex((g) => g.file_id === f.file_id) === i
+            const nowPlaying = player.current?.id === f.file_id && firstCopy
+            const selected = sel?.kind === 'file' && sel.value === f.file_id && sel.user === user &&
+              (sel.row ? sel.row === f.transfer_id : firstCopy)
             return (
-              <FileMenu key={`${f.file_id}-${i}`} track={t}>
-                <div className={`node ${sel?.kind === 'file' && sel.value === f.file_id && sel.user === user ? 'sel' : ''} ${nowPlaying ? 'now-playing' : ''}`}
-                     onClick={() => f.file_id && select({ kind: 'file', value: f.file_id, user })}
+              <FileMenu key={f.transfer_id} track={t}>
+                <div className={`node ${selected ? 'sel' : ''} ${nowPlaying ? 'now-playing' : ''}`}
+                     onClick={() => f.file_id && select({ kind: 'file', value: f.file_id, user, row: f.transfer_id })}
                      onDoubleClick={() => isPlayable(f.name) && player.play([t])}
                      title={isPlayable(f.name) ? 'Double-click to play, right-click for more' : undefined}>
                   <span className="tw">{nowPlaying ? (player.playing ? '♪' : '‖') : ''}</span>

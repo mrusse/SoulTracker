@@ -19,7 +19,7 @@ export interface UserRow { user: string; uploads: number; bytes: number; first_u
 export interface FolderRow { folder: string; users: number; uploads: number; bytes: number; last_upload: string; last_user: string | null }
 
 export interface UserFile {
-  file_id: number; vpath: string; folder: string; name: string; size: number | null
+  transfer_id: number; file_id: number; vpath: string; folder: string; name: string; size: number | null
   time: string; speed: number | null; status: string
 }
 export interface UserDetail {

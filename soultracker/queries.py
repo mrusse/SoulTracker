@@ -118,7 +118,7 @@ def user_detail(conn: sqlite3.Connection, name: str) -> dict | None:
     if totals is None or totals["user"] is None:
         return None
     files = _rows(conn, f"""
-        SELECT f.id AS file_id, f.vpath, f.folder, f.name, f.size, t.started_at AS time,
+        SELECT t.id AS transfer_id, f.id AS file_id, f.vpath, f.folder, f.name, f.size, t.started_at AS time,
                t.speed, t.status
         {BASE} AND {DONE} AND u.name = ?
         ORDER BY t.started_at DESC, t.id DESC""", (name,))
