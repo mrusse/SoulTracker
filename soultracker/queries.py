@@ -233,6 +233,23 @@ def outcomes(conn: sqlite3.Connection, limit: int = 25) -> dict:
     return {"by_reason": by_reason, "problem_files": problem_files}
 
 
+def unknown_sizes(conn: sqlite3.Connection, limit: int = 25) -> dict:
+    """Completed uploads that don't add to the size totals, split by why."""
+    no_file = _rows(conn, f"""
+        SELECT u.name AS user, COUNT(*) AS uploads, MIN(t.started_at) AS first, MAX(t.started_at) AS last
+        {BASE} AND {DONE} AND t.file_id IS NULL
+        GROUP BY u.id ORDER BY uploads DESC""")
+    not_found = _rows(conn, f"""
+        SELECT f.id AS file_id, f.name, f.folder, COUNT(*) AS uploads, f.size_checked_at AS checked_at
+        {BASE} AND {DONE} AND f.id IS NOT NULL AND f.size IS NULL
+        GROUP BY f.id ORDER BY uploads DESC, f.name""")
+    return {
+        "unknown_file": {"uploads": sum(r["uploads"] for r in no_file), "by_user": no_file},
+        "not_found": {"uploads": sum(r["uploads"] for r in not_found), "files": len(not_found),
+                      "examples": not_found[:limit]},
+    }
+
+
 def hide(conn: sqlite3.Connection, kind: str, value: str) -> None:
     conn.execute("INSERT OR IGNORE INTO hidden(kind, value) VALUES(?, ?)", (kind, value))
 

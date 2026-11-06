@@ -42,13 +42,10 @@ export default function Dashboard() {
           )}
         </div>
         <div className="tiles">
-          <Tile label="Uploads" value={count(s.uploads)} note={!haveSizes && s.uploads ? 'sizes unknown: mount your shares' : s.uploads_unknown_size ? `${count(s.uploads_unknown_size)} without a known size` : undefined} />
+          <Tile label="Uploads" value={count(s.uploads)} />
           <Tile label="Users" value={count(s.users)} />
           <Tile label="Different files" value={count(s.files)} />
           <Tile label="Average speed" value={speed(s.avg_speed)} />
-          <Tile label="Failed" value={count(s.failed)} />
-          <Tile label="Cancelled" value={count(s.cancelled)} note="by the downloader" />
-          <Tile label="Denied" value={count(s.denied)} note="queue limit etc." />
         </div>
       </div>
 

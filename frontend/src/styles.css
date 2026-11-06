@@ -118,6 +118,7 @@ button, input, select { font: inherit; color: inherit; }
 .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
 h2 { font-size: 15px; font-weight: 620; margin: 0 0 12px; }
+h3.section { font-size: 13px; font-weight: 620; color: var(--text-secondary); margin: 22px 0 8px; }
 .sub { color: var(--text-muted); font-size: 13px; }
 
 /* ---- cards & tiles ---- */

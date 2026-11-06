@@ -199,6 +199,20 @@ def api_outcomes(conn=Depends(db)):
     return queries.outcomes(conn)
 
 
+@app.get("/api/diagnostics")
+def api_diagnostics(conn=Depends(db)):
+    s = queries.summary(conn)
+    path = log_path()
+    return {
+        "counts": {k: s[k] for k in ("failed", "cancelled", "denied", "queued", "uploads")},
+        **queries.outcomes(conn, limit=10),
+        "unknown_sizes": queries.unknown_sizes(conn),
+        "log": {"path": path, "exists": Path(path).exists(), "last_line_at": get_state(conn, "last_line_at"),
+                "first_seen": s["first_seen"], "last_seen": s["last_seen"]},
+        "shares": SHARE_ROOTS,
+    }
+
+
 KINDS = {"user", "folder", "file"}
 
 

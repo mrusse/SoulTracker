@@ -1,5 +1,6 @@
 import { api } from '../api'
 import { Seg } from '../components'
+import Diagnostics from './Diagnostics'
 import { folderName } from '../format'
 import { useData, useName, useSettings, type FileSort, type Theme } from '../state'
 
@@ -14,7 +15,7 @@ export default function Settings() {
   return (
     <>
       <div className="page-head"><h1>Settings</h1></div>
-      <div className="grid" style={{ maxWidth: 760 }}>
+      <div className="grid" style={{ maxWidth: 860 }}>
         <div className="card">
           <h2>Display</h2>
           <dl className="kv" style={{ alignItems: 'center', rowGap: 14 }}>
@@ -49,6 +50,8 @@ export default function Settings() {
             </table>
           )}
         </div>
+
+        <Diagnostics />
       </div>
     </>
   )

@@ -53,6 +53,15 @@ export interface Outcomes {
   by_reason: { status: string; reason: string; count: number }[]
   problem_files: { file_id: number; name: string; folder: string; failures: number; users: number }[]
 }
+export interface Diagnostics extends Outcomes {
+  counts: { failed: number; cancelled: number; denied: number; queued: number; uploads: number }
+  unknown_sizes: {
+    unknown_file: { uploads: number; by_user: { user: string; uploads: number; first: string; last: string }[] }
+    not_found: { uploads: number; files: number; examples: { file_id: number; name: string; folder: string; uploads: number }[] }
+  }
+  log: { path: string; exists: boolean; last_line_at: string | null; first_seen: string | null; last_seen: string | null }
+  shares: string[]
+}
 export interface HiddenItem { kind: 'user' | 'folder' | 'file'; value: string }
 
 async function get<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
@@ -86,6 +95,7 @@ export const api = {
   timeseries: (bucket: string, since?: string) => get<SeriesPoint[]>('charts/timeseries', { bucket, since }),
   heatmap: (since?: string) => get<HeatCell[]>('charts/heatmap', { since }),
   outcomes: () => get<Outcomes>('outcomes'),
+  diagnostics: () => get<Diagnostics>('diagnostics'),
   hidden: () => get<HiddenItem[]>('hidden'),
   hide: (kind: HiddenItem['kind'], value: string) => send('POST', 'hidden', { kind, value }),
   unhide: (kind: HiddenItem['kind'], value: string) => send('DELETE', 'hidden', undefined, { kind, value }),
