@@ -1,7 +1,7 @@
 import { api } from '../api'
 import { Seg } from '../components'
 import { folderName } from '../format'
-import { useData, useName, useSettings, type Theme } from '../state'
+import { useData, useName, useSettings, type FileSort, type Theme } from '../state'
 
 export default function Settings() {
   const s = useSettings()
@@ -25,6 +25,8 @@ export default function Settings() {
             </dd>
             <dt>Folder names</dt>
             <dd><label className="check"><input type="checkbox" checked={s.fullPath} onChange={(e) => s.set({ fullPath: e.target.checked })} />Show full path</label></dd>
+            <dt>Files in a folder</dt>
+            <dd><Seg<FileSort> value={s.fileSort} onChange={(fileSort) => s.set({ fileSort })} options={[['name', 'By name'], ['time', 'Newest download first']]} /></dd>
             <dt>Theme</dt>
             <dd><Seg<Theme> value={s.theme} onChange={(theme) => s.set({ theme })} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} /></dd>
           </dl>

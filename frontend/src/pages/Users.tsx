@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, type UserDetail } from '../api'
+import { api, type UserDetail, type UserFile } from '../api'
 import { Status } from '../components'
 import { bytes, count, date, folderName, size, speed } from '../format'
-import { navigate, useData, useName, useSettings } from '../state'
+import { navigate, useData, useName, useSettings, type FileSort } from '../state'
 
 type Sel = { kind: 'user'; value: string } | { kind: 'folder'; value: string; user?: string } | { kind: 'file'; value: number; user?: string }
 
@@ -156,9 +156,18 @@ export default function Users({ params }: { params: URLSearchParams }) {
   )
 }
 
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/** Files by name in natural order ("2 x" before "10 x"), or newest download first. */
+function sortFiles(files: UserFile[], sort: FileSort): UserFile[] {
+  if (sort === 'time') return files  // the API returns newest first
+  return [...files].sort((a, b) => byName.compare(a.name ?? '', b.name ?? ''))
+}
+
 function FolderNode({ user, folder, sel, select, fullPath }: {
   user: string; folder: UserDetail['folders'][number]; sel: Sel | null; select: (s: Sel) => void; fullPath: boolean
 }) {
+  const { fileSort } = useSettings()
   const [open, setOpen] = useState(false)
   const key = folder.folder ?? ''
   const selected = sel?.kind === 'folder' && sel.value === key && sel.user === user
@@ -173,7 +182,7 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
       </div>
       {isOpen && (
         <div className="children">
-          {folder.files.map((f, i) => (
+          {sortFiles(folder.files, fileSort).map((f, i) => (
             <div key={`${f.file_id}-${i}`}
                  className={`node ${sel?.kind === 'file' && sel.value === f.file_id && sel.user === user ? 'sel' : ''}`}
                  onClick={() => f.file_id && select({ kind: 'file', value: f.file_id, user })}>

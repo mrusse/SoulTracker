@@ -2,10 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { pseudonym } from './format'
 
 export type Theme = 'system' | 'light' | 'dark'
+export type FileSort = 'name' | 'time'
 
 interface Settings {
   privacy: boolean
   fullPath: boolean
+  fileSort: FileSort
   theme: Theme
   set: (patch: Partial<Omit<Settings, 'set'>>) => void
 }
@@ -22,7 +24,7 @@ function load(): Partial<Settings> {
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [s, setS] = useState(() => ({ privacy: false, fullPath: false, theme: 'system' as Theme, ...load() }))
+  const [s, setS] = useState(() => ({ privacy: false, fullPath: false, fileSort: 'name' as FileSort, theme: 'system' as Theme, ...load() }))
   const set = useCallback((patch: Partial<Omit<Settings, 'set'>>) => {
     setS((prev) => {
       const next = { ...prev, ...patch }
