@@ -181,12 +181,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const seek = useCallback((t: number) => { if (audio.current) audio.current.currentTime = t }, [])
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), [])
 
-  // Show the track in the browser tab while one is loaded.
+  // Show the track in the browser tab only while it's actually playing.
   useEffect(() => {
-    if (!current) { document.title = 'SoulTracker'; return }
+    if (!current || !playing) { document.title = 'SoulTracker'; return }
     const title = meta?.title || current.name.replace(/\.[^.]+$/, '')
-    const label = meta?.artist ? `${title} · ${meta.artist}` : title
-    document.title = `${playing ? '▶ ' : ''}${label}`
+    document.title = meta?.artist ? `${title} · ${meta.artist}` : title
   }, [current, meta, playing])
 
   // OS media controls (keyboard media keys, lock screen, notification).
