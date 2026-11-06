@@ -25,11 +25,9 @@ function selFromParams(p: URLSearchParams): Sel | null {
 
 export default function Users({ params }: { params: URLSearchParams }) {
   const name = useName()
-  const { fullPath, set } = useSettings()
-  const [sort, setSort] = useState('size')
+  const { fullPath, set, userSort: sort, expandAll } = useSettings()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
-  const [expandAll, setExpandAll] = useState(false)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [details, setDetails] = useState<Record<string, UserDetail>>({})
   const [version, setVersion] = useState(0)
@@ -112,11 +110,11 @@ export default function Users({ params }: { params: URLSearchParams }) {
         <div className="controls">
           <input type="search" placeholder="Search users, folders, files…" value={query} onChange={(e) => setQuery(e.target.value)} />
           {!debounced && (
-            <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort users by">
+            <select value={sort} onChange={(e) => set({ userSort: e.target.value })} aria-label="Sort users by">
               {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           )}
-          {!debounced && <label className="check"><input type="checkbox" checked={expandAll} onChange={(e) => setExpandAll(e.target.checked)} />Expand all</label>}
+          {!debounced && <label className="check"><input type="checkbox" checked={expandAll} onChange={(e) => set({ expandAll: e.target.checked })} />Expand all</label>}
           <label className="check"><input type="checkbox" checked={fullPath} onChange={(e) => set({ fullPath: e.target.checked })} />Show full path</label>
         </div>
       </div>
@@ -331,7 +329,7 @@ function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () =
         <dt>Users</dt><dd>{count(data.users)}</dd>
         <dt>Files uploaded</dt><dd>{count(data.uploads)}</dd>
         <dt>Total size</dt><dd>{size(data.bytes)}</dd>
-        <dt>Last user</dt><dd>{name(data.last_user)}</dd>
+        <dt>Last user</dt><dd>{data.last_user ? <a href="#" onClick={(e) => { e.preventDefault(); select({ kind: 'user', value: data.last_user! }) }}>{name(data.last_user)}</a> : '—'}</dd>
         <dt>First upload</dt><dd>{date(data.first_upload)}</dd>
         <dt>Last upload</dt><dd>{date(data.last_upload)}</dd>
       </dl>
@@ -397,14 +395,14 @@ function FileInfo({ id, onRemoved, select }: { id: number; onRemoved: () => void
         <dt>Size</dt><dd>{size(data.size)}</dd>
         <dt>Times uploaded</dt><dd>{count(data.uploads)}</dd>
         <dt>Different users</dt><dd>{count(data.users)}</dd>
-        <dt>Last user</dt><dd>{name(data.last_user)}</dd>
+        <dt>Last user</dt><dd>{data.last_user ? <a href="#" onClick={(e) => { e.preventDefault(); select({ kind: 'user', value: data.last_user! }) }}>{name(data.last_user)}</a> : '—'}</dd>
         <dt>Last upload</dt><dd>{date(data.last_upload)}</dd>
       </dl>
       <h2 style={{ marginTop: 18 }}>History</h2>
       <table>
         <tbody>
           {data.history.map((h, i) => (
-            <tr key={i} title={h.reason ?? undefined}>
+            <tr key={i} title={h.reason ?? undefined} className="clickable" onClick={() => select({ kind: 'user', value: h.user })}>
               <td className="clip">{name(h.user)}</td>
               <td><Status status={h.status} /></td>
               <td className="num">{date(h.started_at ?? h.requested_at)}</td>

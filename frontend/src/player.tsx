@@ -76,25 +76,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [meta, setMeta] = useState<TrackMeta | null>(null)
   const [info, setInfo] = useState<Track | null>(null)
   const autoplay = useRef(false)          // start playing when the source changes
+  // Bumped whenever the player moves to a different queue entry. Loading is keyed on this rather
+  // than on the file, so the same song queued twice in a row still restarts on "next".
+  const [loadToken, setLoadToken] = useState(0)
+  const reload = useCallback(() => setLoadToken((t) => t + 1), [])
   const resumeAt = useRef(saved.time)     // restore position after a page reload
 
   const current = queue[index] ?? null
 
-  // Load the current track into the audio element.
+  // Load the current queue entry into the audio element.
   useEffect(() => {
     const el = audio.current
     if (!el) return
     setError(null)
-    if (!current) { el.removeAttribute('src'); el.load(); setMeta(null); return }
-    if (el.dataset.id !== String(current.id)) {
-      el.dataset.id = String(current.id)
-      el.src = streamUrl(current.id)
-      if (autoplay.current) el.play().catch(() => {})
-    }
+    if (!current) { el.removeAttribute('src'); el.load(); return }
+    el.src = streamUrl(current.id)  // also restarts when it's the same file as before
+    if (autoplay.current) el.play().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadToken])
+
+  // Tags for the bar and media controls.
+  useEffect(() => {
+    if (!current) { setMeta(null); return }
     let alive = true
     trackMeta(current.id).then((m) => { if (alive) setMeta(m) })
     return () => { alive = false }
-  }, [current])
+  }, [current?.id])
 
   // Remember the queue (and roughly where we were) across reloads.
   useEffect(() => {
@@ -105,7 +112,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { if (audio.current) audio.current.volume = volume }, [volume])
 
-  const go = useCallback((i: number) => { autoplay.current = true; setIndex(i) }, [])
+  const go = useCallback((i: number) => { autoplay.current = true; setIndex(i); reload() }, [reload])
   const next = useCallback(() => {
     if (index + 1 < queue.length) go(index + 1)
     else { audio.current?.pause(); audio.current && (audio.current.currentTime = 0) }
@@ -122,8 +129,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     else el.pause()
   }, [current])
 
-  const restart = (el: HTMLAudioElement) => { el.currentTime = 0; el.play().catch(() => {}) }
-
   const play = useCallback((tracks: Track[]) => {
     const ts = tracks.filter((t) => isPlayable(t.name))
     if (!ts.length) return
@@ -139,29 +144,35 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const first = tracks[start]
     setQueue(ts)
     const i = Math.max(0, ts.indexOf(first))
-    if (i === index && audio.current && current?.id === ts[i].id) restart(audio.current)
     go(i)
-  }, [index, current, go])
+  }, [go])
 
   const playNext = useCallback((tracks: Track[]) => {
     const ts = tracks.filter((t) => isPlayable(t.name))
     if (!ts.length) return
-    if (!queue.length) { setQueue(ts); setIndex(0); return }
+    if (!queue.length) { setQueue(ts); setIndex(0); reload(); return }
     setQueue((q) => [...q.slice(0, index + 1), ...ts, ...q.slice(index + 1)])
-  }, [queue.length, index])
+  }, [queue.length, index, reload])
 
   const enqueue = useCallback((tracks: Track[]) => {
     const ts = tracks.filter((t) => isPlayable(t.name))
-    if (ts.length) setQueue((q) => [...q, ...ts])
-  }, [])
+    if (!ts.length) return
+    if (!queue.length) { setQueue(ts); setIndex(0); reload(); return }
+    setQueue((q) => [...q, ...ts])
+  }, [queue.length, reload])
 
   const remove = useCallback((i: number) => {
     setQueue((q) => q.filter((_, j) => j !== i))
     if (i < index) setIndex(index - 1)
-    else if (i === index) autoplay.current = !!playing
-  }, [index, playing])
+    else if (i === index) {
+      // the next entry slides into this slot (or step back if this was the last one)
+      autoplay.current = playing
+      if (index >= queue.length - 1) setIndex(Math.max(0, index - 1))
+      reload()
+    }
+  }, [index, playing, queue.length, reload])
 
-  const clear = useCallback(() => { audio.current?.pause(); setQueue([]); setIndex(0) }, [])
+  const clear = useCallback(() => { audio.current?.pause(); setQueue([]); setIndex(0); reload() }, [reload])
   const seek = useCallback((t: number) => { if (audio.current) audio.current.currentTime = t }, [])
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), [])
 
