@@ -13,7 +13,6 @@ ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PATH=/app/.venv/bin:$PATH \
-    SOULTRACKER_LOG=/soulseek/.SoulseekQt/transfers.log \
     SOULTRACKER_DB=/config/soultracker.db \
     SOULTRACKER_SHARES=/shares
 COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /usr/local/bin/uv

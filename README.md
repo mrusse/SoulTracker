@@ -23,7 +23,7 @@ services:
     ports:
       - 8484:8484
     volumes:
-      - /mnt/user/appdata/soulseek:/soulseek:ro   # the folder that has .SoulseekQt/transfers.log
+      - /mnt/user/appdata/soulseek:/soulseek:ro   # the host folder transfers.log ends up in
       - /mnt/user/data/Files:/shares:ro           # the folder that holds your shared folders
       - /mnt/user/appdata/soultracker:/config     # SoulTracker's database
     environment:
@@ -38,7 +38,7 @@ If a shared folder is nested (Soulseek shares `.../Archive/Archive`), or you'd r
 
 | Variable | Default | |
 |---|---|---|
-| `SOULTRACKER_LOG` | `/soulseek/.SoulseekQt/transfers.log` | the hook's log file |
+| `SOULTRACKER_LOG` | `/soulseek/transfers.log` | the hook's log file (also found at `/soulseek/.SoulseekQt/transfers.log`) |
 | `SOULTRACKER_SHARES` | `/shares` | where to look up file sizes (comma separated for more than one) |
 | `SOULTRACKER_PASSWORD` | | set it to require a password |
 | `SOULTRACKER_POLL` | `2` | seconds between log reads |

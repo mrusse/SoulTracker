@@ -1,7 +1,8 @@
 """FastAPI app: JSON API + the built frontend, with the log reader running in the background.
 
 Configuration (environment variables):
-  SOULTRACKER_LOG       path to transfers.log   (default /soulseek/.SoulseekQt/transfers.log)
+  SOULTRACKER_LOG       path to transfers.log   (default: /soulseek/transfers.log, or
+                        /soulseek/.SoulseekQt/transfers.log if that is where it is)
   SOULTRACKER_DB        SQLite database path    (default /config/soultracker.db)
   SOULTRACKER_SHARES    shared folder root(s), comma separated, for file sizes (default /shares)
   SOULTRACKER_PASSWORD  if set, the UI/API require this password (HTTP basic auth, any username)
@@ -38,7 +39,18 @@ mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("image/svg+xml", ".svg")
 
-LOG_PATH = os.environ.get("SOULTRACKER_LOG", "/soulseek/.SoulseekQt/transfers.log")
+# Mount the folder that holds transfers.log at /soulseek. Depending on how the soulseek
+# container's appdata is mapped, the log is either directly in it or in .SoulseekQt/ inside it.
+LOG_CANDIDATES = ["/soulseek/transfers.log", "/soulseek/.SoulseekQt/transfers.log"]
+LOG_ENV = os.environ.get("SOULTRACKER_LOG", "")
+
+
+def log_path() -> str:
+    if LOG_ENV:
+        return LOG_ENV
+    return next((c for c in LOG_CANDIDATES if Path(c).exists()), LOG_CANDIDATES[0])
+
+
 DB_PATH = os.environ.get("SOULTRACKER_DB", "/config/soultracker.db")
 SHARE_ROOTS = [s for s in os.environ.get("SOULTRACKER_SHARES", "/shares").split(",") if s.strip()]
 PASSWORD = os.environ.get("SOULTRACKER_PASSWORD", "")
@@ -52,7 +64,11 @@ def _now() -> str:
 
 def ingest_loop(stop: threading.Event) -> None:
     conn = connect(DB_PATH)
-    ing = Ingestor(conn, LOG_PATH)
+    # Wait for the log to appear (e.g. the hook hasn't written anything yet).
+    while not Path(log_path()).exists() and not stop.wait(POLL):
+        pass
+    ing = Ingestor(conn, log_path())
+    log.info("reading %s", log_path())
     shares = Shares(SHARE_ROOTS)
     last_share_scan = 0.0
     while not stop.is_set():
@@ -113,7 +129,8 @@ def api_health():
 @app.get("/api/summary")
 def api_summary(conn=Depends(db)):
     s = queries.summary(conn)
-    s["log"] = {"path": LOG_PATH, "exists": Path(LOG_PATH).exists(),
+    path = log_path()
+    s["log"] = {"path": path, "exists": Path(path).exists(),
                 "last_line_at": get_state(conn, "last_line_at")}
     return s
 
