@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api, type UserDetail, type UserFile } from '../api'
 import { Status } from '../components'
 import { bytes, count, date, folderName, size, speed } from '../format'
-import { Cover, FileMenu, FolderMenu, isPlayable, usePlayer, type Track } from '../player'
+import { Cover, FileMenu, FolderMenu, isAudio, isPlayable, usePlayer, type Track } from '../player'
 import { navigate, useData, useName, useSettings, type FileSort } from '../state'
 
 type Sel = { kind: 'user'; value: string } | { kind: 'folder'; value: string; user?: string } | { kind: 'file'; value: number; user?: string; row?: number }
@@ -373,22 +373,24 @@ function FileInfo({ id, onRemoved, select }: { id: number; onRemoved: () => void
   const t: Track = { id: data.file_id, name: data.name, folder: data.folder }
   return (
     <>
-      <div className="info-head" style={{ marginBottom: 14 }}>
-        <Cover id={data.file_id} size={96} />
-        <div style={{ minWidth: 0 }}>
-          <h2 style={{ marginBottom: 6 }}>File</h2>
-          <div className="controls">
-            {isPlayable(data.name) ? (
-              <>
-                <button className="btn" onClick={() => player.play([t])}>Play</button>
-                <button className="btn" onClick={() => player.playNext([t])}>Play next</button>
-                <button className="btn" onClick={() => player.enqueue([t])}>Add to queue</button>
-              </>
-            ) : <span className="sub">This format can't be played in the browser.</span>}
-            <button className="btn" onClick={() => player.showInfo(t)}>File info</button>
+      {isAudio(data.name) ? (
+        <div className="info-head" style={{ marginBottom: 14 }}>
+          <Cover id={data.file_id} size={96} />
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ marginBottom: 6 }}>File</h2>
+            <div className="controls">
+              {isPlayable(data.name) ? (
+                <>
+                  <button className="btn" onClick={() => player.play([t])}>Play</button>
+                  <button className="btn" onClick={() => player.playNext([t])}>Play next</button>
+                  <button className="btn" onClick={() => player.enqueue([t])}>Add to queue</button>
+                </>
+              ) : <span className="sub">This format can't be played in the browser.</span>}
+              <button className="btn" onClick={() => player.showInfo(t)}>File info</button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : <h2>File</h2>}
       <dl className="kv">
         <dt>File</dt><dd>{data.name}</dd>
         <dt>Folder</dt><dd><a href="#" onClick={(e) => { e.preventDefault(); select({ kind: 'folder', value: data.folder }) }}>{folderName(data.folder, true)}</a></dd>

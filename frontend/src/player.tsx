@@ -11,6 +11,11 @@ export interface Track { id: number; name: string; folder: string | null }
 const PLAYABLE = ['.mp3', '.flac', '.m4a', '.mp4', '.aac', '.ogg', '.oga', '.opus', '.wav']
 export const isPlayable = (name: string | null | undefined) =>
   !!name && PLAYABLE.some((ext) => name.toLowerCase().endsWith(ext))
+// Audio formats browsers can't play: shown with a "can't be played" note instead of player options.
+const OTHER_AUDIO = ['.wma', '.ape', '.aif', '.aiff', '.alac', '.wv', '.dsf', '.dff', '.mpc', '.tta', '.mka', '.ac3', '.dts', '.amr', '.mid', '.midi', '.au']
+/** Is this a music file at all (playable or not)? Non-audio files (ROMs, images...) get no player UI. */
+export const isAudio = (name: string | null | undefined) =>
+  isPlayable(name) || (!!name && OTHER_AUDIO.some((ext) => name.toLowerCase().endsWith(ext)))
 
 const streamUrl = (id: number) => `/api/file/${id}/stream`
 export const coverUrl = (id: number) => `/api/file/${id}/cover`
@@ -175,6 +180,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(() => { audio.current?.pause(); setQueue([]); setIndex(0); reload() }, [reload])
   const seek = useCallback((t: number) => { if (audio.current) audio.current.currentTime = t }, [])
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), [])
+
+  // Show the track in the browser tab while one is loaded.
+  useEffect(() => {
+    if (!current) { document.title = 'SoulTracker'; return }
+    const title = meta?.title || current.name.replace(/\.[^.]+$/, '')
+    const label = meta?.artist ? `${title} · ${meta.artist}` : title
+    document.title = `${playing ? '▶ ' : ''}${label}`
+  }, [current, meta, playing])
 
   // OS media controls (keyboard media keys, lock screen, notification).
   useEffect(() => {
@@ -346,6 +359,7 @@ function QueuePanel({ onClose }: { onClose: () => void }) {
 export function FileMenu({ track, children }: { track: Track; children: ReactNode }) {
   const p = usePlayer()
   const ok = isPlayable(track.name)
+  if (!isAudio(track.name)) return <>{children}</>
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
@@ -368,6 +382,7 @@ export function FolderMenu({ tracks, children }: { tracks: Track[]; children: Re
   const p = usePlayer()
   const playable = tracks.filter((t) => isPlayable(t.name))
   const none = playable.length === 0
+  if (!tracks.some((t) => isAudio(t.name))) return <>{children}</>
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
