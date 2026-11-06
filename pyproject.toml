@@ -1,0 +1,25 @@
+[project]
+name = "soultracker"
+version = "0.1.0"
+description = "Upload stats tracker for SoulseekQt, fed by the slsklog transfers.log"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8",
+]
+
+[project.scripts]
+soultracker = "soultracker.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

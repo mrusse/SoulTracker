@@ -1,0 +1,20 @@
+# logs and data
+*.log
+*.log.1
+*.db
+*.db-*
+data/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# frontend
+node_modules/
+frontend/dist/
+
+# local only
+tests/
+CLAUDE.md

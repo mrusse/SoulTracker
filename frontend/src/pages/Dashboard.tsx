@@ -1,0 +1,130 @@
+import { useState } from 'react'
+import { api } from '../api'
+import { Seg, Status } from '../components'
+import { ago, bytes, count, date, folderName, size, speed } from '../format'
+import { navigate, useData, useName, useSettings } from '../state'
+
+const REFRESH = 15000
+
+export default function Dashboard() {
+  const name = useName()
+  const { fullPath } = useSettings()
+  const [userBy, setUserBy] = useState<'bytes' | 'uploads'>('bytes')
+  const [folderBy, setFolderBy] = useState<'users' | 'uploads'>('users')
+  const summary = useData(api.summary, [], REFRESH)
+  const users = useData(() => api.topUsers(userBy, 15), [userBy], REFRESH)
+  const folders = useData(() => api.topFolders(folderBy, 15), [folderBy], REFRESH)
+  const recent = useData(() => api.recent(15), [], REFRESH)
+
+  const s = summary.data
+  if (summary.error && !s) return <div className="empty">Couldn't load stats: {summary.error}</div>
+  if (!s) return <div className="empty">Loading…</div>
+  const haveSizes = s.bytes > 0
+
+  return (
+    <>
+      <div className="page-head">
+        <h1>Dashboard</h1>
+        <span className="sub">{s.first_seen ? `Tracking since ${date(s.first_seen)}` : 'Waiting for log data'}</span>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="hero">
+          <div>
+            <div className="label">{haveSizes ? 'Total uploaded' : 'Completed uploads'}</div>
+            <div className="value">{haveSizes ? bytes(s.bytes) : count(s.uploads)}</div>
+          </div>
+          {s.last_upload && (
+            <div className="sub" style={{ paddingBottom: 6 }}>
+              Last upload {ago(s.last_upload.time)} to <a href={`#/users?user=${encodeURIComponent(s.last_upload.user)}`}>{name(s.last_upload.user)}</a>
+              {s.last_upload.file ? <> · {s.last_upload.file}</> : null}
+            </div>
+          )}
+        </div>
+        <div className="tiles">
+          <Tile label="Uploads" value={count(s.uploads)} note={!haveSizes && s.uploads ? 'sizes unknown: mount your shares' : s.uploads_unknown_size ? `${count(s.uploads_unknown_size)} without a known size` : undefined} />
+          <Tile label="Users" value={count(s.users)} />
+          <Tile label="Different files" value={count(s.files)} />
+          <Tile label="Average speed" value={speed(s.avg_speed)} />
+          <Tile label="Failed" value={count(s.failed)} />
+          <Tile label="Cancelled" value={count(s.cancelled)} note="by the downloader" />
+          <Tile label="Denied" value={count(s.denied)} note="queue limit etc." />
+        </div>
+      </div>
+
+      <div className="grid two" style={{ marginBottom: 16 }}>
+        <div className="card">
+          <div className="page-head" style={{ marginBottom: 8 }}>
+            <h2 style={{ margin: 0 }}>Top users</h2>
+            <Seg value={userBy} onChange={setUserBy} options={[['bytes', 'By size'], ['uploads', 'By uploads']]} />
+          </div>
+          <table>
+            <thead><tr><th className="rank">#</th><th>User</th><th className="num">Uploads</th><th className="num">Size</th></tr></thead>
+            <tbody>
+              {users.data?.map((u, i) => (
+                <tr key={u.user} className="clickable" onClick={() => navigate('users', { user: u.user })}>
+                  <td className="rank">{i + 1}</td>
+                  <td className="clip">{name(u.user)}</td>
+                  <td className="num">{count(u.uploads)}</td>
+                  <td className="num">{size(u.bytes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {users.data?.length === 0 && <div className="empty">No uploads yet</div>}
+        </div>
+
+        <div className="card">
+          <div className="page-head" style={{ marginBottom: 8 }}>
+            <h2 style={{ margin: 0 }}>Top folders</h2>
+            <Seg value={folderBy} onChange={setFolderBy} options={[['users', 'By users'], ['uploads', 'By files']]} />
+          </div>
+          <table>
+            <thead><tr><th className="rank">#</th><th>Folder</th><th className="num">Users</th><th className="num">Files</th></tr></thead>
+            <tbody>
+              {folders.data?.map((f, i) => (
+                <tr key={f.folder} className="clickable" onClick={() => navigate('users', { folder: f.folder })}
+                    title={`Last downloaded by ${name(f.last_user)}, ${date(f.last_upload)}`}>
+                  <td className="rank">{i + 1}</td>
+                  <td className="clip">{folderName(f.folder, fullPath)}</td>
+                  <td className="num">{count(f.users)}</td>
+                  <td className="num">{count(f.uploads)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {folders.data?.length === 0 && <div className="empty">No uploads yet</div>}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Recent activity</h2>
+        <table>
+          <thead><tr><th>When</th><th>User</th><th>File</th><th>Outcome</th><th className="num">Size</th></tr></thead>
+          <tbody>
+            {recent.data?.map((r, i) => (
+              <tr key={i} className={r.file_id ? 'clickable' : ''}
+                  onClick={() => r.file_id && navigate('users', { file: String(r.file_id) })}>
+                <td style={{ whiteSpace: 'nowrap' }} title={date(r.time)}>{ago(r.time)}</td>
+                <td className="clip" style={{ width: '22%' }}>{name(r.user)}</td>
+                <td className="clip" style={{ width: '48%' }} title={r.folder ? folderName(r.folder, true) : undefined}>{r.name ?? <span className="sub">unknown file (requested before tracking began)</span>}</td>
+                <td title={r.reason ?? undefined}><Status status={r.status} /></td>
+                <td className="num">{size(r.size)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
+function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="tile">
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+      {note && <div className="note">{note}</div>}
+    </div>
+  )
+}
