@@ -5,6 +5,7 @@ description = "Upload stats tracker for SoulseekQt, fed by the slsklog transfers
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.162.0",
+    "mutagen>=1.48.1",
     "uvicorn[standard]>=0.54.0",
 ]
 

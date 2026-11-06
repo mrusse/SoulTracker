@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api, type UserDetail, type UserFile } from '../api'
 import { Status } from '../components'
 import { bytes, count, date, folderName, size, speed } from '../format'
+import { Cover, FileMenu, FolderMenu, isPlayable, usePlayer, type Track } from '../player'
 import { navigate, useData, useName, useSettings, type FileSort } from '../state'
 
 type Sel = { kind: 'user'; value: string } | { kind: 'folder'; value: string; user?: string } | { kind: 'file'; value: number; user?: string }
@@ -173,24 +174,39 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
   const selected = sel?.kind === 'folder' && sel.value === key && sel.user === user
   const hasSelectedFile = sel?.kind === 'file' && sel.user === user && folder.files.some((f) => f.file_id === sel.value)
   const isOpen = open || hasSelectedFile
+  const player = usePlayer()
+  const files = sortFiles(folder.files, fileSort)
+  const seen = new Set<number>()
+  const tracks: Track[] = files.flatMap((f) => (f.file_id && !seen.has(f.file_id) && seen.add(f.file_id)
+    ? [{ id: f.file_id, name: f.name, folder: f.folder }] : []))
   return (
     <div>
-      <div className={`node ${selected ? 'sel' : ''}`} onClick={() => folder.folder && select({ kind: 'folder', value: key, user })}>
-        <span className="tw" onClick={(e) => { e.stopPropagation(); setOpen(!isOpen) }}>{isOpen ? '▼' : '▶'}</span>
-        <span className="name" title={folderName(folder.folder, true)}>{folderName(folder.folder, fullPath)}</span>
-        <span className="meta">{count(folder.uploads)}{folder.bytes ? ` · ${bytes(folder.bytes)}` : ''}</span>
-      </div>
+      <FolderMenu tracks={tracks}>
+        <div className={`node ${selected ? 'sel' : ''}`} onClick={() => folder.folder && select({ kind: 'folder', value: key, user })}
+             onDoubleClick={() => setOpen(!isOpen)}>
+          <span className="tw" onClick={(e) => { e.stopPropagation(); setOpen(!isOpen) }}>{isOpen ? '▼' : '▶'}</span>
+          <span className="name" title={folderName(folder.folder, true)}>{folderName(folder.folder, fullPath)}</span>
+          <span className="meta">{count(folder.uploads)}{folder.bytes ? ` · ${bytes(folder.bytes)}` : ''}</span>
+        </div>
+      </FolderMenu>
       {isOpen && (
         <div className="children">
-          {sortFiles(folder.files, fileSort).map((f, i) => (
-            <div key={`${f.file_id}-${i}`}
-                 className={`node ${sel?.kind === 'file' && sel.value === f.file_id && sel.user === user ? 'sel' : ''}`}
-                 onClick={() => f.file_id && select({ kind: 'file', value: f.file_id, user })}>
-              <span className="tw" />
-              <span className="name">{f.name ?? 'unknown file'}</span>
-              <span className="meta">{size(f.size)}</span>
-            </div>
-          ))}
+          {files.map((f, i) => {
+            const t: Track = { id: f.file_id, name: f.name, folder: f.folder }
+            const nowPlaying = player.current?.id === f.file_id
+            return (
+              <FileMenu key={`${f.file_id}-${i}`} track={t}>
+                <div className={`node ${sel?.kind === 'file' && sel.value === f.file_id && sel.user === user ? 'sel' : ''} ${nowPlaying ? 'now-playing' : ''}`}
+                     onClick={() => f.file_id && select({ kind: 'file', value: f.file_id, user })}
+                     onDoubleClick={() => isPlayable(f.name) && player.play([t])}
+                     title={isPlayable(f.name) ? 'Double-click to play, right-click for more' : undefined}>
+                  <span className="tw">{nowPlaying ? (player.playing ? '♪' : '‖') : ''}</span>
+                  <span className="name">{f.name ?? 'unknown file'}</span>
+                  <span className="meta">{size(f.size)}</span>
+                </div>
+              </FileMenu>
+            )
+          })}
         </div>
       )}
     </div>
@@ -199,6 +215,7 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
 
 function SearchResults({ results, select }: { results: Awaited<ReturnType<typeof api.search>> | null; select: (s: Sel) => void }) {
   const name = useName()
+  const player = usePlayer()
   const { fullPath } = useSettings()
   if (!results) return <div className="empty">Searching…</div>
   const none = !results.users.length && !results.folders.length && !results.files.length
@@ -218,11 +235,17 @@ function SearchResults({ results, select }: { results: Awaited<ReturnType<typeof
         </div>
       ))}
       {results.files.length > 0 && <div className="sub" style={{ padding: '10px 8px 4px' }}>Files</div>}
-      {results.files.map((f) => (
-        <div key={f.file_id} className="node" onClick={() => select({ kind: 'file', value: f.file_id })}>
-          <span className="name" title={folderName(f.folder, true)}>{f.name}</span><span className="meta">{count(f.uploads)}</span>
-        </div>
-      ))}
+      {results.files.map((f) => {
+        const t: Track = { id: f.file_id, name: f.name, folder: f.folder }
+        return (
+          <FileMenu key={f.file_id} track={t}>
+            <div className="node" onClick={() => select({ kind: 'file', value: f.file_id })}
+                 onDoubleClick={() => isPlayable(f.name) && player.play([t])}>
+              <span className="name" title={folderName(f.folder, true)}>{f.name}</span><span className="meta">{count(f.uploads)}</span>
+            </div>
+          </FileMenu>
+        )
+      })}
     </>
   )
 }
@@ -272,12 +295,31 @@ function UserInfo({ name: user, onRemoved }: { name: string; onRemoved: () => vo
 
 function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () => void; select: (s: Sel) => void }) {
   const name = useName()
+  const player = usePlayer()
+  const { fileSort } = useSettings()
   const { data, error } = useData(() => api.folder(path), [path])
   if (error) return <div className="empty">{error}</div>
   if (!data) return <div className="empty">Loading…</div>
+  const files = fileSort === 'time'
+    ? [...data.files].sort((a, b) => (b.last_upload ?? '').localeCompare(a.last_upload ?? ''))
+    : [...data.files].sort((a, b) => byName.compare(a.name, b.name))
+  const tracks: Track[] = files.map((f) => ({ id: f.file_id, name: f.name, folder: data.folder }))
+  const playable = tracks.filter((t) => isPlayable(t.name))
   return (
     <>
-      <h2>Folder</h2>
+      <div className="info-head" style={{ marginBottom: 14 }}>
+        {playable.length > 0 && <Cover id={playable[0].id} size={96} />}
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ marginBottom: 6 }}>Folder</h2>
+          {playable.length > 0 && (
+            <div className="controls">
+              <button className="btn" onClick={() => player.playAll(playable)}>Play folder</button>
+              <button className="btn" onClick={() => player.playNext(playable)}>Play next</button>
+              <button className="btn" onClick={() => player.enqueue(playable)}>Add to queue</button>
+            </div>
+          )}
+        </div>
+      </div>
       <dl className="kv">
         <dt>Folder</dt><dd>{folderName(data.folder, false)}</dd>
         <dt>Path</dt><dd>{folderName(data.folder, true)}</dd>
@@ -298,6 +340,22 @@ function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () =
           ))}
         </tbody>
       </table>
+      <h2 style={{ marginTop: 18 }}>Files</h2>
+      <table>
+        <tbody>
+          {files.map((f, i) => (
+            <FileMenu key={f.file_id} track={tracks[i]}>
+              <tr className={`clickable ${player.current?.id === f.file_id ? 'now-playing' : ''}`}
+                  onClick={() => select({ kind: 'file', value: f.file_id })}
+                  onDoubleClick={() => isPlayable(f.name) && player.play([tracks[i]])}>
+                <td className="clip">{f.name}</td>
+                <td className="num">{count(f.uploads)}×</td>
+                <td className="num">{size(f.size)}</td>
+              </tr>
+            </FileMenu>
+          ))}
+        </tbody>
+      </table>
       <RemoveButton kind="folder" value={path} label={`folder "${folderName(path, false)}"`} onRemoved={onRemoved} />
     </>
   )
@@ -305,12 +363,29 @@ function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () =
 
 function FileInfo({ id, onRemoved, select }: { id: number; onRemoved: () => void; select: (s: Sel) => void }) {
   const name = useName()
+  const player = usePlayer()
   const { data, error } = useData(() => api.file(id), [id])
   if (error) return <div className="empty">{error}</div>
   if (!data) return <div className="empty">Loading…</div>
+  const t: Track = { id: data.file_id, name: data.name, folder: data.folder }
   return (
     <>
-      <h2>File</h2>
+      <div className="info-head" style={{ marginBottom: 14 }}>
+        <Cover id={data.file_id} size={96} />
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ marginBottom: 6 }}>File</h2>
+          <div className="controls">
+            {isPlayable(data.name) ? (
+              <>
+                <button className="btn" onClick={() => player.play([t])}>Play</button>
+                <button className="btn" onClick={() => player.playNext([t])}>Play next</button>
+                <button className="btn" onClick={() => player.enqueue([t])}>Add to queue</button>
+              </>
+            ) : <span className="sub">This format can't be played in the browser.</span>}
+            <button className="btn" onClick={() => player.showInfo(t)}>File info</button>
+          </div>
+        </div>
+      </div>
       <dl className="kv">
         <dt>File</dt><dd>{data.name}</dd>
         <dt>Folder</dt><dd><a href="#" onClick={(e) => { e.preventDefault(); select({ kind: 'folder', value: data.folder }) }}>{folderName(data.folder, true)}</a></dd>

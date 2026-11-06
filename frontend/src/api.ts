@@ -62,6 +62,12 @@ export interface Diagnostics extends Outcomes {
   log: { path: string; exists: boolean; last_line_at: string | null; first_seen: string | null; last_seen: string | null }
   shares: string[]
 }
+export interface TrackMeta {
+  title: string | null; artist: string | null; album: string | null; albumartist: string | null
+  year: string | null; genre: string | null; track: string | null
+  duration: number | null; bitrate: number | null; sample_rate: number | null; bits_per_sample: number | null
+  channels: number | null; playable: boolean; format: string; size: number
+}
 export interface HiddenItem { kind: 'user' | 'folder' | 'file'; value: string }
 
 async function get<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
@@ -96,6 +102,7 @@ export const api = {
   heatmap: (since?: string) => get<HeatCell[]>('charts/heatmap', { since }),
   outcomes: () => get<Outcomes>('outcomes'),
   diagnostics: () => get<Diagnostics>('diagnostics'),
+  meta: (id: number) => get<TrackMeta>(`file/${id}/meta`),
   hidden: () => get<HiddenItem[]>('hidden'),
   hide: (kind: HiddenItem['kind'], value: string) => send('POST', 'hidden', { kind, value }),
   unhide: (kind: HiddenItem['kind'], value: string) => send('DELETE', 'hidden', undefined, { kind, value }),

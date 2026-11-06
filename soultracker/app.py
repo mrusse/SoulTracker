@@ -22,11 +22,11 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
-from . import queries
+from . import media, queries
 from .db import connect, get_state, set_state
 from .ingest import Ingestor
 from .shares import Shares
@@ -172,6 +172,54 @@ def api_file(file_id: int, conn=Depends(db)):
     if d is None:
         raise HTTPException(404, "no such file")
     return d
+
+
+# ---- playback ----
+
+_shares = Shares(SHARE_ROOTS)
+_shares_scanned = 0.0
+
+
+def _real_file(conn, file_id: int) -> Path:
+    """The file on the shares for a tracked file id (only files SoulTracker knows can be played)."""
+    global _shares_scanned
+    row = conn.execute("SELECT vpath FROM files WHERE id=?", (file_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "no such file")
+    path = _shares.resolve(row[0])
+    if path is None and time.time() - _shares_scanned > 60:  # maybe a share was added since
+        _shares.refresh()
+        _shares_scanned = time.time()
+        path = _shares.resolve(row[0])
+    if path is None:
+        raise HTTPException(404, "file not found on the shares")
+    return path
+
+
+@app.get("/api/file/{file_id}/stream")
+def api_stream(file_id: int, conn=Depends(db)):
+    path = _real_file(conn, file_id)
+    mime = media.mime_type(path)
+    if mime is None:
+        raise HTTPException(415, "this format can't be played in the browser")
+    # FileResponse handles Range requests, so the player can seek without downloading everything.
+    return FileResponse(path, media_type=mime, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.get("/api/file/{file_id}/meta")
+def api_meta(file_id: int, conn=Depends(db)):
+    path = _real_file(conn, file_id)
+    return {**media.tags(path), "playable": media.mime_type(path) is not None,
+            "format": path.suffix.lstrip(".").upper(), "size": path.stat().st_size}
+
+
+@app.get("/api/file/{file_id}/cover")
+def api_cover(file_id: int, conn=Depends(db)):
+    found = media.cover(_real_file(conn, file_id))
+    if found is None:
+        raise HTTPException(404, "no cover art")
+    data, mime = found
+    return Response(data, media_type=mime, headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/api/search")

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { api } from '../api'
+import type { RecentRow as Recent } from '../api'
 import { Seg, Status } from '../components'
+import { FileMenu, isPlayable, useClickOrDouble, usePlayer, type Track } from '../player'
 import { ago, bytes, count, date, folderName, size, speed } from '../format'
 import { navigate, useData, useName, useSettings } from '../state'
 
@@ -99,16 +101,7 @@ export default function Dashboard() {
         <table>
           <thead><tr><th>When</th><th>User</th><th>File</th><th>Outcome</th><th className="num">Size</th></tr></thead>
           <tbody>
-            {recent.data?.map((r, i) => (
-              <tr key={i} className={r.file_id ? 'clickable' : ''}
-                  onClick={() => r.file_id && navigate('users', { file: String(r.file_id) })}>
-                <td style={{ whiteSpace: 'nowrap' }} title={date(r.time)}>{ago(r.time)}</td>
-                <td className="clip" style={{ width: '22%' }}>{name(r.user)}</td>
-                <td className="clip" style={{ width: '48%' }} title={r.folder ? folderName(r.folder, true) : undefined}>{r.name ?? <span className="sub">unknown file (requested before tracking began)</span>}</td>
-                <td title={r.reason ?? undefined}><Status status={r.status} /></td>
-                <td className="num">{size(r.size)}</td>
-              </tr>
-            ))}
+            {recent.data?.map((r, i) => <RecentRow key={i} r={r} />)}
           </tbody>
         </table>
       </div>
@@ -124,4 +117,24 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
       {note && <div className="note">{note}</div>}
     </div>
   )
+}
+
+function RecentRow({ r }: { r: Recent }) {
+  const name = useName()
+  const player = usePlayer()
+  const t: Track | null = r.file_id && r.name ? { id: r.file_id, name: r.name, folder: r.folder } : null
+  const clicks = useClickOrDouble(
+    () => { if (r.file_id) navigate('users', { file: String(r.file_id) }) },
+    () => { if (t && isPlayable(t.name)) player.play([t]) },
+  )
+  const row = (
+    <tr className={`${r.file_id ? 'clickable' : ''} ${t && player.current?.id === t.id ? 'now-playing' : ''}`} {...clicks}>
+      <td style={{ whiteSpace: 'nowrap' }} title={date(r.time)}>{ago(r.time)}</td>
+      <td className="clip" style={{ width: '22%' }}>{name(r.user)}</td>
+      <td className="clip" style={{ width: '48%' }} title={r.folder ? folderName(r.folder, true) : undefined}>{r.name ?? <span className="sub">unknown file (requested before tracking began)</span>}</td>
+      <td title={r.reason ?? undefined}><Status status={r.status} /></td>
+      <td className="num">{size(r.size)}</td>
+    </tr>
+  )
+  return t ? <FileMenu track={t}>{row}</FileMenu> : row
 }

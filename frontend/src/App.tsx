@@ -4,6 +4,7 @@ import Charts from './pages/Charts'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
+import { PlayerBar, usePlayer } from './player'
 import { href, useData, useRoute } from './state'
 
 const PAGES = [
@@ -37,8 +38,9 @@ function Health() {
 export default function App() {
   const route = useRoute()
   const page = PAGES.some((p) => p.id === route.page) ? route.page : 'dashboard'
+  const player = usePlayer()
   return (
-    <div className="app">
+    <div className={`app ${player.current ? 'has-player' : ''}`}>
       <nav className="nav">
         <div className="brand"><img className="logo-light" src="/logo_dark.png" alt="" /><img className="logo-dark" src="/logo_light.png" alt="" />SoulTracker</div>
         {PAGES.map((p) => (
@@ -53,6 +55,7 @@ export default function App() {
         {page === 'charts' && <Charts />}
         {page === 'settings' && <Settings />}
       </main>
+      <PlayerBar />
     </div>
   )
 }
