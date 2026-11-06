@@ -1,9 +1,11 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo_light.png">
-  <img src="assets/logo_dark.png" width="96" align="right" alt="">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo_light.png">
+    <img src="assets/logo_dark.png" width="120" alt="SoulTracker logo">
+  </picture>
+</p>
 
-# SoulTracker
+<h1 align="center">SoulTracker</h1>
 
 Upload stats for SoulseekQt. It reads the `transfers.log` written by [soulseekqt-transfer-logging](https://github.com/mrusse/soulseekqt-transfer-logging) and shows who downloaded what from you: top users and folders, every file a user grabbed, failures and cancels, and charts over time.
 
@@ -30,7 +32,9 @@ services:
 
 Then open `http://<server>:8484`. On first start it reads whatever is already in the log.
 
-The `/shares` mount is only used for file sizes. Soulseek doesn't log them, so SoulTracker looks each file up on disk. Mount the folder that *contains* your shared folders (e.g. `Music (FLAC)` should end up at `/shares/Music (FLAC)`). Leave it out and you still get everything except sizes.
+The `/shares` mount is only used for file sizes. Soulseek doesn't log them, so SoulTracker looks each file up on disk. Mount the folder that *contains* your shared folders (e.g. a shared folder called `Music` should end up at `/shares/Music`). Leave it out and you still get everything except sizes.
+
+If a shared folder is nested (Soulseek shares `.../Archive/Archive`), or you'd rather not expose the parent folder, mount each shared folder by name instead, e.g. `/mnt/user/media/Music:/shares/Music:ro`. The folder name under `/shares` has to match the shared folder's name in Soulseek.
 
 | Variable | Default | |
 |---|---|---|

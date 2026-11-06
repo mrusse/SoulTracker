@@ -1,8 +1,8 @@
 """Looks up file sizes on the shared folders mounted into the container.
 
-Requests use virtual paths like  @@mfapl\\Music (320)\\Hole\\Live Through This\\07 x.mp3
-where "Music (320)" is the name of a shared folder. SOULTRACKER_SHARES lists one or more
-directories (comma separated); any folder named "Music (320)" directly inside one of them is
+Requests use virtual paths like  @@abcde\\Music\\Artist\\Album\\01 Track.flac
+where "Music" is the name of a shared folder. SOULTRACKER_SHARES lists one or more
+directories (comma separated); any folder named "Music" directly inside one of them is
 used, and a listed directory can also be a shared folder itself. So mounting the parent of
 all your shared folders at /shares is enough, or list each shared folder.
 """

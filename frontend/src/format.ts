@@ -44,7 +44,7 @@ export function ago(ts: string | null | undefined): string {
   return `${Math.floor(s / 86400)} d ago`
 }
 
-/** "@@tok\Music (FLAC)\Artist\Album" -> "Album", or the full path without the share token. */
+/** "@@tok\Music\Artist\Album" -> "Album", or the full path without the share token. */
 export function folderName(folder: string | null | undefined, full: boolean): string {
   if (!folder) return '(unknown folder)'
   const parts = folder.split('\\')
