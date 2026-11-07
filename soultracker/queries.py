@@ -69,15 +69,22 @@ def top_users(conn: sqlite3.Connection, by: str = "bytes", limit: int = 100) -> 
 def top_folders(conn: sqlite3.Connection, by: str = "users", limit: int = 100) -> list[dict]:
     order = {"users": "users DESC, uploads DESC", "uploads": "uploads DESC, users DESC",
              "bytes": "bytes DESC"}.get(by, "users DESC, uploads DESC")
+    # Rank folders first, then look up the last downloader only for the few that made the cut
+    # (doing it per folder inside the GROUP BY made this the slowest query on the dashboard).
     return _rows(conn, f"""
-        SELECT f.folder, COUNT(DISTINCT t.user_id) AS users, COUNT(*) AS uploads,
-               COALESCE(SUM(f.size), 0) AS bytes, MAX(t.started_at) AS last_upload,
-               (SELECT u2.name FROM transfers t2 JOIN users u2 ON u2.id = t2.user_id
-                JOIN files f2 ON f2.id = t2.file_id
-                WHERE f2.folder = f.folder AND t2.status IN ('completed','uploading')
+        SELECT top.*,
+               (SELECT u2.name FROM files f2
+                JOIN transfers t2 ON t2.file_id = f2.id AND t2.status IN ('completed','uploading')
+                JOIN users u2 ON u2.id = t2.user_id
+                WHERE f2.folder = top.folder
                 ORDER BY t2.started_at DESC LIMIT 1) AS last_user
-        {BASE} AND {DONE} AND f.id IS NOT NULL
-        GROUP BY f.folder ORDER BY {order} LIMIT ?""", (limit,))
+        FROM (
+            SELECT f.folder, COUNT(DISTINCT t.user_id) AS users, COUNT(*) AS uploads,
+                   COALESCE(SUM(f.size), 0) AS bytes, MAX(t.started_at) AS last_upload
+            {BASE} AND {DONE} AND f.id IS NOT NULL
+            GROUP BY f.folder ORDER BY {order} LIMIT ?
+        ) AS top
+        ORDER BY {order}""", (limit,))
 
 
 USER_SORTS = {

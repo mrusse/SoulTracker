@@ -51,6 +51,7 @@ export default function Users({ params }: { params: URLSearchParams }) {
     const u = sel?.kind === 'user' ? sel.value : sel?.user
     if (u) {
       setOpen((prev) => new Set(prev).add(u))
+      setClosed((prev) => { const n = new Set(prev); n.delete(u); return n })
       loadUser(u)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -73,13 +74,13 @@ export default function Users({ params }: { params: URLSearchParams }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandAll, users.data])
 
+  // Users collapsed by hand while "Expand all" is on.
+  const [closed, setClosed] = useState<Set<string>>(new Set())
   const toggle = (u: string) => {
-    setOpen((prev) => {
-      const next = new Set(prev)
-      if (next.has(u)) next.delete(u)
-      else { next.add(u); loadUser(u) }
-      return next
-    })
+    const opening = !isOpen(u)
+    setOpen((prev) => { const n = new Set(prev); if (opening) n.add(u); else n.delete(u); return n })
+    setClosed((prev) => { const n = new Set(prev); if (opening) n.delete(u); else n.add(u); return n })
+    if (opening) loadUser(u)
   }
 
   const select = (s: Sel) => {
@@ -101,7 +102,7 @@ export default function Users({ params }: { params: URLSearchParams }) {
     navigate('users')
   }
 
-  const isOpen = (u: string) => open.has(u) || (expandAll && !!details[u])
+  const isOpen = (u: string) => !closed.has(u) && (open.has(u) || (expandAll && !!details[u]))
 
   return (
     <>
@@ -129,8 +130,13 @@ export default function Users({ params }: { params: URLSearchParams }) {
               {users.data?.map((u) => (
                 <div key={u.user} data-user={u.user}>
                   <div className={`node ${sel?.kind === 'user' && sel.value === u.user ? 'sel' : ''}`}
-                       onClick={() => select({ kind: 'user', value: u.user })}>
-                    <span className="tw" onClick={(e) => { e.stopPropagation(); toggle(u.user) }}>{isOpen(u.user) ? '▼' : '▶'}</span>
+                       onClick={() => {
+                         // first click opens and selects; clicking the selected, open row closes it
+                         const selected = sel?.kind === 'user' && sel.value === u.user
+                         if (!isOpen(u.user) || selected) toggle(u.user)
+                         select({ kind: 'user', value: u.user })
+                       }}>
+                    <Twisty open={isOpen(u.user)} onToggle={() => toggle(u.user)} />
                     <span className="name">{name(u.user)}</span>
                     <span className="meta">{count(u.uploads)}{u.bytes ? ` · ${bytes(u.bytes)}` : ''}</span>
                   </div>
@@ -156,6 +162,17 @@ export default function Users({ params }: { params: URLSearchParams }) {
   )
 }
 
+/** Expand/collapse arrow: a real button with a comfortable hit area. */
+function Twisty({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" className={`twisty ${open ? 'open' : ''}`} aria-expanded={open}
+            aria-label={open ? 'Collapse' : 'Expand'}
+            onClick={(e) => { e.stopPropagation(); onToggle() }}>
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+    </button>
+  )
+}
+
 const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 /** Files by name in natural order ("2 x" before "10 x"), or newest download first. */
@@ -168,11 +185,12 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
   user: string; folder: UserDetail['folders'][number]; sel: Sel | null; select: (s: Sel) => void; fullPath: boolean
 }) {
   const { fileSort } = useSettings()
-  const [open, setOpen] = useState(false)
   const key = folder.folder ?? ''
   const selected = sel?.kind === 'folder' && sel.value === key && sel.user === user
   const hasSelectedFile = sel?.kind === 'file' && sel.user === user && folder.files.some((f) => f.file_id === sel.value)
-  const isOpen = open || hasSelectedFile
+  // Open by itself when one of its files gets selected (e.g. from a link), but stay closable.
+  const [isOpen, setOpen] = useState(hasSelectedFile)
+  useEffect(() => { if (hasSelectedFile) setOpen(true) }, [hasSelectedFile])
   const player = usePlayer()
   const files = sortFiles(folder.files, fileSort)
   const seen = new Set<number>()
@@ -181,9 +199,12 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
   return (
     <div>
       <FolderMenu tracks={tracks}>
-        <div className={`node ${selected ? 'sel' : ''}`} onClick={() => folder.folder && select({ kind: 'folder', value: key, user })}
-             onDoubleClick={() => setOpen(!isOpen)}>
-          <span className="tw" onClick={(e) => { e.stopPropagation(); setOpen(!isOpen) }}>{isOpen ? '▼' : '▶'}</span>
+        <div className={`node ${selected ? 'sel' : ''}`}
+             onClick={() => {
+               if (!isOpen || selected) setOpen(!isOpen)
+               if (folder.folder) select({ kind: 'folder', value: key, user })
+             }}>
+          <Twisty open={isOpen} onToggle={() => setOpen(!isOpen)} />
           <span className="name" title={folderName(folder.folder, true)}>{folderName(folder.folder, fullPath)}</span>
           <span className="meta">{count(folder.uploads)}{folder.bytes ? ` · ${bytes(folder.bytes)}` : ''}</span>
         </div>
@@ -203,7 +224,7 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
                      onClick={() => f.file_id && select({ kind: 'file', value: f.file_id, user, row: f.transfer_id })}
                      onDoubleClick={() => isPlayable(f.name) && player.play([t])}
                      title={isPlayable(f.name) ? 'Double-click to play, right-click for more' : undefined}>
-                  <span className="tw">{nowPlaying ? (player.playing ? '♪' : '‖') : ''}</span>
+                  <span className="twisty-space">{nowPlaying ? (player.playing ? '♪' : '‖') : ''}</span>
                   <span className="name">{f.name ?? 'unknown file'}</span>
                   <span className="meta">{size(f.size)}</span>
                 </div>
