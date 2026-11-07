@@ -18,3 +18,9 @@ frontend/dist/
 # local only
 tests/
 CLAUDE.md
+
+# pyinstaller (Discord tray exe)
+/build/
+/dist/
+*.spec
+soultracker.ico

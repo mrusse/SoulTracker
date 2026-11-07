@@ -1,8 +1,10 @@
 name: Build
 
-# Every push and pull request builds the Docker image.
+# Every push and pull request builds the Docker image and SoulTracker-Discord.exe (the Windows
+# tray app for Discord status; each run keeps it as a downloadable workflow artifact).
 #   push to main      -> publishes ghcr.io/<owner>/soultracker:latest (+ a sha-xxxxxxx tag)
-#   push a tag v1.2.3 -> publishes :1.2.3 and :1.2, and creates a GitHub release
+#   push a tag v1.2.3 -> publishes :1.2.3 and :1.2, and creates a GitHub release with
+#                        SoulTracker-Discord.exe attached
 #   pull request      -> builds only, nothing is published
 on:
   push:
@@ -58,19 +60,47 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+  discord-exe:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write      # sign the build attestation
+      attestations: write  # store the build attestation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build SoulTracker-Discord.exe
+        shell: bash
+        run: |
+          uv run --no-project --with-requirements tools/requirements-discord.txt python -c "from PIL import Image; Image.open('assets/logo_light.png').save('soultracker.ico', sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])"
+          uv run --no-project --with-requirements tools/requirements-discord.txt pyinstaller --noconfirm --onefile --windowed             --name SoulTracker-Discord --icon soultracker.ico             --add-data "assets/logo_light.png;." --add-data "assets/logo_dark.png;."             --paths tools tools/discord_tray.py
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/SoulTracker-Discord.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SoulTracker-Discord
+          path: dist/SoulTracker-Discord.exe
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: image
+    needs: [image, discord-exe]
     runs-on: ubuntu-24.04
     permissions:
       contents: write  # create the release
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: SoulTracker-Discord
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ghcr.io/${{ github.repository_owner }}/soultracker
         run: |
           version="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
-            --notes "Docker image: \`$IMAGE:$version\` (digest \`${{ needs.image.outputs.digest }}\`)"
+          sha256sum SoulTracker-Discord.exe | tee SoulTracker-Discord.exe.sha256
+          gh release create "$GITHUB_REF_NAME" SoulTracker-Discord.exe SoulTracker-Discord.exe.sha256             --title "$GITHUB_REF_NAME" --generate-notes             --notes "Docker image: \`$IMAGE:$version\` (digest \`${{ needs.image.outputs.digest }}\`)
+          Windows Discord status app: SoulTracker-Discord.exe"

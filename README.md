@@ -44,6 +44,16 @@ If a shared folder is nested (Soulseek shares `.../Archive/Archive`), or you'd r
 | `SOULTRACKER_POLL` | `2` | seconds between log reads |
 | `SOULTRACKER_LASTFM_KEY` / `SOULTRACKER_LASTFM_SECRET` | | to scrobble songs played in SoulTracker ([get an API account](https://www.last.fm/api/account/create)), then **Settings → Connect Last.fm** |
 
+## Discord status
+
+Discord only accepts "Listening to…" status from programs on the same computer, so this part runs on your PC, not in the container.
+
+1. Create an application at https://discord.com/developers/applications (call it SoulTracker; that name is what Discord shows) and copy its **Application ID**.
+2. **Windows:** download `SoulTracker-Discord.exe` from the [releases](https://github.com/mrusse/SoulTracker/releases) and run it. It lives in the tray; right-click it to set the app ID and your SoulTracker address from the clipboard, and to turn on *Launch with Windows*.
+3. **Elsewhere:** `uv run tools/discord_presence.py --app-id <id> --url http://<server>:8484` (or `pip install pypresence` and use `python`).
+
+It shows the song, artist, album art (from Last.fm, if connected) and a progress bar while something's playing in SoulTracker, and clears when you pause.
+
 ## How accurate is it?
 
 SoulseekQt doesn't log which file finished, so SoulTracker works it out from the order the client serves each user's queue. Checked against the client's own Uploads list over a few hours of real traffic, it got the right user and file for 99.3% of uploads.
