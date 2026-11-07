@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { api, type SeriesPoint } from '../api'
 import { ColumnChart, Heatmap, LineChart, type Point } from '../charts'
-import { ClientFilter, Seg } from '../components'
+import { ClientNote, Seg } from '../components'
 import { bytes, compact, count, speed } from '../format'
 import { useClient, useData } from '../state'
 
@@ -82,7 +82,7 @@ export default function Charts() {
       <div className="page-head">
         <h1>Charts</h1>
         <div className="controls">
-          <ClientFilter />
+          <ClientNote />
           <Seg value={range} onChange={setRange} options={[['7', '7 days'], ['30', '30 days'], ['90', '90 days'], ['365', '1 year'], ['all', 'All time']]} />
           <Seg value={bucket} onChange={setBucket} options={[['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly']]} />
           <label className="check"><input type="checkbox" checked={table} onChange={(e) => setTable(e.target.checked)} />Show as table</label>

@@ -15,7 +15,9 @@ const PAGES = [
 ]
 
 // The client writes constantly while it's running, so a quiet log usually means trouble.
-const QUIET_MINUTES = 15
+// Minutes without new log lines before a client counts as quiet. Nicotine+ buffers its log and,
+// when busy, only writes it out every several minutes, so it gets more slack.
+const QUIET_MINUTES: Record<string, number> = { soulseekqt: 15, nicotine: 60 }
 
 /** One line per client: is its log there, and is it still being written to? */
 function Health() {
@@ -27,7 +29,7 @@ function Health() {
     <div>
       {data.map((src) => {
         const last = src.last_line_at
-        const quiet = !last || Date.now() - new Date(last.replace(' ', 'T')).getTime() > QUIET_MINUTES * 60000
+        const quiet = !last || Date.now() - new Date(last.replace(' ', 'T')).getTime() > (QUIET_MINUTES[src.client] ?? 15) * 60000
         let color = 'var(--good)'
         let text = `active, ${ago(last)}`
         if (src.importing) { color = 'var(--accent)'; text = `importing history ${Math.floor((100 * src.importing.done) / Math.max(1, src.importing.total))}%` }

@@ -323,3 +323,11 @@ button.cover { border: 0; padding: 0; cursor: pointer; }
   display: inline-block; font-size: 10px; font-weight: 600; line-height: 1; padding: 3px 5px; border-radius: 4px;
   margin-left: 6px; vertical-align: 1px; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border);
 }
+
+/* "Nicotine+ only" reminder on pages without the client filter */
+.client-note {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  background: var(--accent-wash); color: var(--text-primary); border: 1px solid var(--border);
+}
+.client-note span { color: var(--text-muted); margin-left: 4px; }
+.client-note:hover span { color: var(--text-primary); }

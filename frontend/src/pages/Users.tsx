@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type UserDetail, type UserFile } from '../api'
-import { ClientFilter, ClientTag, Status } from '../components'
+import { ClientNote, ClientTag, Status } from '../components'
 import { bytes, count, date, dateSeconds, folderName, size, speed } from '../format'
 import { Cover, FileMenu, FolderMenu, isAudio, isPlayable, usePlayer, type Track } from '../player'
 import { navigate, useClient, useData, useName, useSettings, type FileSort } from '../state'
@@ -112,7 +112,7 @@ export default function Users({ params }: { params: URLSearchParams }) {
       <div className="page-head">
         <h1>Users &amp; files</h1>
         <div className="controls">
-          <ClientFilter />
+          <ClientNote />
           <input type="search" placeholder="Search users, folders, files…" value={query} onChange={(e) => setQuery(e.target.value)} />
           {!debounced && (
             <select value={sort} onChange={(e) => set({ userSort: e.target.value })} aria-label="Sort users by">

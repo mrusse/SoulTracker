@@ -27,6 +27,18 @@ export function ClientTag({ client }: { client?: Client }) {
   return <span className={`client-tag ${client}`} title={CLIENT_LABEL[client]}>{CLIENT_SHORT[client]}</span>
 }
 
+/** On pages without the filter: a small note when the Dashboard's filter is showing one client only. */
+export function ClientNote() {
+  const { client, set } = useSettings()
+  const { data } = useSources()
+  if (client === 'all' || !data || data.length < 2) return null
+  return (
+    <button className="client-note" onClick={() => set({ client: 'all' })} title="Show all clients (set on the Dashboard)">
+      {CLIENT_LABEL[client]} only <span aria-hidden="true">×</span>
+    </button>
+  )
+}
+
 /** All / SoulseekQt / Nicotine+ filter for a page; hidden unless both clients are set up. */
 export function ClientFilter() {
   const { client, set } = useSettings()
