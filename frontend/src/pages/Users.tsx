@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type UserDetail, type UserFile } from '../api'
 import { Status } from '../components'
-import { bytes, count, date, folderName, size, speed } from '../format'
+import { bytes, count, date, dateSeconds, folderName, size, speed } from '../format'
 import { Cover, FileMenu, FolderMenu, isAudio, isPlayable, usePlayer, type Track } from '../player'
 import { navigate, useData, useName, useSettings, type FileSort } from '../state'
 
@@ -407,7 +407,7 @@ function FileInfo({ id, onRemoved, select }: { id: number; onRemoved: () => void
             <tr key={i} title={h.reason ?? undefined} className="clickable" onClick={() => select({ kind: 'user', value: h.user })}>
               <td className="clip">{name(h.user)}</td>
               <td><Status status={h.status} /></td>
-              <td className="num">{date(h.started_at ?? h.requested_at)}</td>
+              <td className="num">{dateSeconds(h.started_at ?? h.requested_at)}</td>
             </tr>
           ))}
         </tbody>

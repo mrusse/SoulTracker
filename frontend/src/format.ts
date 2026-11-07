@@ -35,6 +35,12 @@ export function date(ts: string | null | undefined): string {
   return parse(ts).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+/** Like date(), with seconds: for lists where several events can share a minute. */
+export function dateSeconds(ts: string | null | undefined): string {
+  if (!ts) return '—'
+  return parse(ts).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
 export function ago(ts: string | null | undefined): string {
   if (!ts) return '—'
   const s = (Date.now() - parse(ts).getTime()) / 1000
