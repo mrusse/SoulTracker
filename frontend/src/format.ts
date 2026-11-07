@@ -1,15 +1,20 @@
-export function bytes(n: number | null | undefined): string {
+const UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const
+export type MaxUnit = 'auto' | 'MB' | 'GB' | 'TB'
+
+/** Human size. maxUnit caps the unit (e.g. 'GB' shows 2.3 TB as "2,355 GB"). */
+export function bytes(n: number | null | undefined, maxUnit: MaxUnit = 'auto'): string {
   if (n == null) return '—'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  const top = maxUnit === 'auto' ? UNITS.length - 1 : UNITS.indexOf(maxUnit)
   let v = n
   let i = 0
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
-  return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`
+  while (v >= 1024 && i < top) { v /= 1024; i++ }
+  const digits = v >= 100 || i === 0 ? 0 : 1
+  return `${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${UNITS[i]}`
 }
 
 /** Like bytes(), but a 0 total means "unknown" (no sizes found on the shares). */
-export function size(n: number | null | undefined): string {
-  return n ? bytes(n) : '—'
+export function size(n: number | null | undefined, maxUnit: MaxUnit = 'auto'): string {
+  return n ? bytes(n, maxUnit) : '—'
 }
 
 export function count(n: number | null | undefined): string {

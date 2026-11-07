@@ -10,7 +10,7 @@ const REFRESH = 15000
 
 export default function Dashboard() {
   const name = useName()
-  const { fullPath } = useSettings()
+  const { fullPath, maxUnit } = useSettings()
   const [userBy, setUserBy] = useState<'bytes' | 'uploads'>('bytes')
   const [folderBy, setFolderBy] = useState<'users' | 'uploads'>('users')
   const client = useClient()
@@ -38,7 +38,7 @@ export default function Dashboard() {
         <div className="hero">
           <div>
             <div className="label">{haveSizes ? 'Total uploaded' : 'Completed uploads'}</div>
-            <div className="value">{haveSizes ? bytes(s.bytes) : count(s.uploads)}</div>
+            <div className="value">{haveSizes ? bytes(s.bytes, maxUnit) : count(s.uploads)}</div>
           </div>
           {s.last_upload && (
             <div className="sub" style={{ paddingBottom: 6 }}>
@@ -69,7 +69,7 @@ export default function Dashboard() {
                   <td className="rank">{i + 1}</td>
                   <td className="clip">{name(u.user)}</td>
                   <td className="num">{count(u.uploads)}</td>
-                  <td className="num">{size(u.bytes)}</td>
+                  <td className="num">{size(u.bytes, maxUnit)}</td>
                 </tr>
               ))}
             </tbody>
@@ -125,6 +125,7 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
 
 function RecentRow({ r }: { r: Recent }) {
   const name = useName()
+  const { maxUnit } = useSettings()
   const player = usePlayer()
   const t: Track | null = r.file_id && r.name ? { id: r.file_id, name: r.name, folder: r.folder } : null
   const clicks = useClickOrDouble(
@@ -137,7 +138,7 @@ function RecentRow({ r }: { r: Recent }) {
       <td className="clip" style={{ width: '22%' }}>{name(r.user)}</td>
       <td className="clip" style={{ width: '48%' }} title={r.folder ? folderName(r.folder, true) : undefined}>{r.name ?? <span className="sub">unknown file (requested before tracking began)</span>}<ClientTag client={r.client} /></td>
       <td title={r.reason ?? undefined}><Status status={r.status} client={r.client} /></td>
-      <td className="num">{size(r.size)}</td>
+      <td className="num">{size(r.size, maxUnit)}</td>
     </tr>
   )
   return t ? <FileMenu track={t}>{row}</FileMenu> : row

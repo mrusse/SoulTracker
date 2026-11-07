@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Client } from './api'
-import { pseudonym } from './format'
+import { pseudonym, type MaxUnit } from './format'
 
 export type Theme = 'system' | 'light' | 'dark'
 export type FileSort = 'name' | 'time'
@@ -13,6 +13,7 @@ interface Settings {
   client: 'all' | Client  // which client's uploads to show
   expandAll: boolean    // Users & files: expand every user
   queueHistory: boolean // player queue: show songs already played
+  maxUnit: MaxUnit      // Dashboard: largest unit for sizes
   theme: Theme
   set: (patch: Partial<Omit<Settings, 'set'>>) => void
 }
@@ -29,7 +30,7 @@ function load(): Partial<Settings> {
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [s, setS] = useState(() => ({ privacy: false, fullPath: false, fileSort: 'name' as FileSort, userSort: 'size', expandAll: false, queueHistory: false, client: 'all' as 'all' | Client, theme: 'system' as Theme, ...load() }))
+  const [s, setS] = useState(() => ({ privacy: false, fullPath: false, fileSort: 'name' as FileSort, userSort: 'size', expandAll: false, queueHistory: false, maxUnit: 'auto' as MaxUnit, client: 'all' as 'all' | Client, theme: 'system' as Theme, ...load() }))
   const set = useCallback((patch: Partial<Omit<Settings, 'set'>>) => {
     setS((prev) => {
       const next = { ...prev, ...patch }

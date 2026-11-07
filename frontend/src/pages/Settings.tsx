@@ -2,7 +2,7 @@ import { api } from '../api'
 import { Seg } from '../components'
 import Diagnostics from './Diagnostics'
 import LastFM from './LastFM'
-import { folderName } from '../format'
+import { folderName, type MaxUnit } from '../format'
 import { useData, useName, useSettings, type FileSort, type Theme } from '../state'
 
 export default function Settings() {
@@ -29,6 +29,12 @@ export default function Settings() {
             <dd><label className="check"><input type="checkbox" checked={s.fullPath} onChange={(e) => s.set({ fullPath: e.target.checked })} />Show full path</label></dd>
             <dt>Files in a folder</dt>
             <dd><Seg<FileSort> value={s.fileSort} onChange={(fileSort) => s.set({ fileSort })} options={[['name', 'By name'], ['time', 'Newest download first']]} /></dd>
+            <dt>Largest size unit</dt>
+            <dd>
+              <Seg<MaxUnit> value={s.maxUnit} onChange={(maxUnit) => s.set({ maxUnit })}
+                            options={[['auto', 'Auto'], ['MB', 'MB'], ['GB', 'GB'], ['TB', 'TB']]} />
+              <div className="sub">For sizes on the Dashboard, e.g. GB shows 2.3 TB as 2,355 GB.</div>
+            </dd>
             <dt>Theme</dt>
             <dd><Seg<Theme> value={s.theme} onChange={(theme) => s.set({ theme })} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} /></dd>
           </dl>
