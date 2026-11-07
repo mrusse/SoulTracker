@@ -111,15 +111,6 @@ def set_autostart(on: bool) -> None:
                 pass
 
 
-def taskbar_is_light() -> bool:
-    import winreg
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
-            return winreg.QueryValueEx(k, "SystemUsesLightTheme")[0] == 1
-    except OSError:
-        return False
-
-
 def already_running() -> bool:
     """One copy at a time (e.g. started by Windows and again by hand)."""
     import ctypes
@@ -141,8 +132,7 @@ class TrayApp:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.updater = self._new_updater()
-        logo = "logo_dark.png" if taskbar_is_light() else "logo_light.png"
-        self.icon = pystray.Icon("soultracker-discord", Image.open(resource(logo)), "SoulTracker", self._menu())
+        self.icon = pystray.Icon("soultracker-discord", Image.open(resource("tray.png")), "SoulTracker", self._menu())
 
     def _new_updater(self) -> PresenceUpdater:
         return PresenceUpdater(self.cfg.get("url", "http://localhost:8484"), self.cfg.get("app_id"),

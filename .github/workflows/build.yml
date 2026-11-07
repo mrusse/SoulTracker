@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           uv run --no-project --with-requirements tools/requirements-discord.txt python -c "from PIL import Image; Image.open('assets/logo_light.png').save('soultracker.ico', sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])"
-          uv run --no-project --with-requirements tools/requirements-discord.txt pyinstaller --noconfirm --onefile --windowed             --name SoulTracker-Discord --icon soultracker.ico             --add-data "assets/logo_light.png;." --add-data "assets/logo_dark.png;."             --paths tools tools/discord_tray.py
+          uv run --no-project --with-requirements tools/requirements-discord.txt pyinstaller --noconfirm --onefile --windowed             --name SoulTracker-Discord --icon soultracker.ico             --add-data "assets/tray.png;."             --paths tools tools/discord_tray.py
       - name: Attest build provenance
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest-build-provenance@v2
