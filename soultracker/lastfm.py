@@ -8,6 +8,7 @@ Last.fm outage just means they go out later.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -57,6 +58,7 @@ def status(conn: sqlite3.Connection) -> dict:
         "sent": counts.get("sent", 0),
         "pending": counts.get("pending", 0),
         "recent": recent,
+        "now_playing": json.loads(get_state(conn, "lastfm_now_playing") or "null"),
     }
 
 
@@ -90,16 +92,25 @@ def _int(v) -> int | None:
 
 
 def now_playing(conn: sqlite3.Connection, tags: dict) -> None:
-    """Tell Last.fm what's playing. Best effort: failures are only logged."""
-    if not enabled(conn) or not tags.get("artist") or not tags.get("title"):
+    """Tell Last.fm what's playing (shows as "Scrobbling now" right away). The outcome is kept
+    in state so the Settings card can show it."""
+    if not enabled(conn):
         return
-    try:
-        network(_session(conn)).update_now_playing(
-            artist=tags["artist"], title=tags["title"], album=tags.get("album"),
-            album_artist=tags.get("albumartist"), duration=_int(tags.get("duration")),
-            track_number=_int(tags.get("track")))
-    except Exception as e:  # network trouble, bad session...
-        log.warning("now playing update failed: %s", e)
+    result = {"at": int(time.time()), "artist": tags.get("artist"), "title": tags.get("title"), "ok": False, "error": None}
+    if not tags.get("artist") or not tags.get("title"):
+        result["error"] = "this file has no artist/title tags"
+    else:
+        try:
+            network(_session(conn)).update_now_playing(
+                artist=tags["artist"], title=tags["title"], album=tags.get("album"),
+                album_artist=tags.get("albumartist"), duration=_int(tags.get("duration")),
+                track_number=_int(tags.get("track")))
+            result["ok"] = True
+        except Exception as e:  # network trouble, bad session...
+            result["error"] = str(e)[:300]
+            log.warning("now playing update failed: %s", e)
+    set_state(conn, "lastfm_now_playing", json.dumps(result))
+    conn.commit()
 
 
 def record_scrobble(conn: sqlite3.Connection, file_id: int, played_at: int, tags: dict) -> str:

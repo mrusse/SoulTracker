@@ -12,7 +12,7 @@ const fromUnix = (t: number) => {
 const STATUS: Record<string, string> = { sent: 'Scrobbled', pending: 'Waiting to send', skipped: 'Skipped' }
 
 export default function LastFM() {
-  const { data: s, error, reload } = useData(api.lastfm, [], 30000)
+  const { data: s, error, reload } = useData(api.lastfm, [], 10000)
   const [busy, setBusy] = useState(false)
   const failed = new URLSearchParams(window.location.hash.split('?')[1] || '').has('lastfm_error')
 
@@ -59,6 +59,13 @@ export default function LastFM() {
                 Scrobble songs played here
               </label>
               <div className="sub">A song scrobbles once you've listened to half of it or 4 minutes (songs over 30 seconds).</div>
+            </dd>
+            <dt>Now playing</dt>
+            <dd>
+              {!s.now_playing ? <span className="sub">Nothing sent yet. It's sent as soon as a song starts playing here.</span>
+                : s.now_playing.ok
+                  ? <span>Sent for {s.now_playing.title} · {s.now_playing.artist} <span className="sub">({ago(fromUnix(s.now_playing.at))})</span></span>
+                  : <span style={{ color: 'var(--critical)' }}>Failed{s.now_playing.title ? ` for ${s.now_playing.title}` : ''}: {s.now_playing.error} <span className="sub">({ago(fromUnix(s.now_playing.at))})</span></span>}
             </dd>
             <dt>Sent</dt>
             <dd>{s.sent.toLocaleString()}{s.pending > 0 && <span className="sub"> · {s.pending} waiting to send (retried every few minutes)</span>}</dd>

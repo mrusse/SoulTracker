@@ -71,6 +71,7 @@ export interface TrackMeta {
 export interface LastFMStatus {
   configured: boolean; connected: boolean; user: string | null; enabled: boolean
   sent: number; pending: number
+  now_playing: { at: number; artist: string | null; title: string | null; ok: boolean; error: string | null } | null
   recent: { artist: string | null; title: string | null; album: string | null; played_at: number; status: string; error: string | null }[]
 }
 export interface HiddenItem { kind: 'user' | 'folder' | 'file'; value: string }
