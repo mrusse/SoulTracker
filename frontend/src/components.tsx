@@ -33,8 +33,9 @@ export function ClientNote() {
   const { data } = useSources()
   if (client === 'all' || !data || data.length < 2) return null
   return (
-    <button className="client-note" onClick={() => set({ client: 'all' })} title="Show all clients (set on the Dashboard)">
-      {CLIENT_LABEL[client]} only <span aria-hidden="true">×</span>
+    <button className={`client-tag client-note ${client}`} onClick={() => set({ client: 'all' })}
+            title={`Showing ${CLIENT_LABEL[client]} only (set on the Dashboard). Click to show all clients.`}>
+      {CLIENT_SHORT[client]} <span aria-hidden="true">×</span>
     </button>
   )
 }

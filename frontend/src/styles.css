@@ -325,9 +325,6 @@ button.cover { border: 0; padding: 0; cursor: pointer; }
 }
 
 /* "Nicotine+ only" reminder on pages without the client filter */
-.client-note {
-  font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
-  background: var(--accent-wash); color: var(--text-primary); border: 1px solid var(--border);
-}
-.client-note span { color: var(--text-muted); margin-left: 4px; }
+.client-note { cursor: pointer; margin-left: 0; font-family: inherit; }
+.client-note span { color: var(--text-muted); margin-left: 3px; }
 .client-note:hover span { color: var(--text-primary); }
