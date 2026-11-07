@@ -14,6 +14,8 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from .db import norm_vpath
+
 RECHECK_MISSING_AFTER = timedelta(days=1)
 
 
@@ -40,24 +42,34 @@ class Shares:
 
     def resolve(self, vpath: str) -> Path | None:
         """Virtual path -> real file, or None if it can't be found."""
-        parts = vpath.split("\\")
-        if len(parts) < 3 or not parts[0].startswith("@@"):
+        parts = norm_vpath(vpath).split(chr(92))  # first part = the shared folder's name
+        if len(parts) < 2:
             return None
         if self._share_dirs is None:
             self._share_dirs = self._scan()
-        base = self._share_dirs.get(parts[1].lower())
+        base = self._share_dirs.get(parts[0].lower())
         if base is None:
             return None
-        exact = base.joinpath(*parts[2:])
+        exact = base.joinpath(*parts[1:])
         if exact.is_file():
             return exact
-        return _resolve_case_insensitive(base, parts[2:])
+        return _resolve_case_insensitive(base, parts[1:])
 
     def refresh(self) -> None:
         self._share_dirs = None
 
+    def size_of(self, vpath: str) -> int | None:
+        """Size of a file on the shares (None if it can't be found)."""
+        real = self.resolve(vpath)
+        try:
+            return real.stat().st_size if real else None
+        except OSError:
+            return None
+
     def update_sizes(self, conn: sqlite3.Connection, limit: int = 500) -> int:
-        """Fill in sizes for files not checked yet (or missing and due for a recheck)."""
+        """Fill in sizes for files not checked yet (or missing and due for a recheck).
+        New files normally get their size when they're first seen (see Tracker); if a size turns
+        up later for a file that's already been uploaded, the totals are marked for a rebuild."""
         if not self.roots:
             return 0
         cutoff = (datetime.now() - RECHECK_MISSING_AFTER).strftime("%Y-%m-%d %H:%M:%S")
@@ -65,13 +77,15 @@ class Shares:
             "SELECT id, vpath FROM files WHERE size_checked_at IS NULL "
             "OR (size IS NULL AND size_checked_at < ?) LIMIT ?", (cutoff, limit)).fetchall()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        late = False
         for fid, vpath in rows:
-            real = self.resolve(vpath)
-            try:
-                size = real.stat().st_size if real else None
-            except OSError:
-                size = None
+            size = self.size_of(vpath)
             conn.execute("UPDATE files SET size=?, size_checked_at=? WHERE id=?", (size, now, fid))
+            if size is not None and not late:
+                late = conn.execute("SELECT 1 FROM transfers WHERE file_id=? LIMIT 1", (fid,)).fetchone() is not None
+        if late:
+            from . import aggregates
+            aggregates.mark_dirty(conn)
         return len(rows)
 
 

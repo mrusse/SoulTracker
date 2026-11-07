@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { api, type SeriesPoint } from '../api'
 import { ColumnChart, Heatmap, LineChart, type Point } from '../charts'
-import { Seg } from '../components'
+import { ClientFilter, Seg } from '../components'
 import { bytes, compact, count, speed } from '../format'
-import { useData } from '../state'
+import { useClient, useData } from '../state'
 
 type Range = '7' | '30' | '90' | '365' | 'all'
 type Bucket = 'day' | 'week' | 'month'
@@ -61,8 +61,9 @@ export default function Charts() {
   const [bucket, setBucket] = useState<Bucket>('day')
   const [table, setTable] = useState(false)
   const since = sinceFor(range)
-  const series = useData(() => api.timeseries(bucket, since), [bucket, range])
-  const heat = useData(() => api.heatmap(since), [range])
+  const client = useClient()
+  const series = useData(() => api.timeseries(bucket, since, client), [bucket, range, client])
+  const heat = useData(() => api.heatmap(since, client), [range, client])
 
   const rows = useMemo(() => fill(bucket, series.data ?? []), [bucket, series.data])
   const pts = (f: (r: SeriesPoint) => number | null): Point[] =>
@@ -81,6 +82,7 @@ export default function Charts() {
       <div className="page-head">
         <h1>Charts</h1>
         <div className="controls">
+          <ClientFilter />
           <Seg value={range} onChange={setRange} options={[['7', '7 days'], ['30', '30 days'], ['90', '90 days'], ['365', '1 year'], ['all', 'All time']]} />
           <Seg value={bucket} onChange={setBucket} options={[['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly']]} />
           <label className="check"><input type="checkbox" checked={table} onChange={(e) => setTable(e.target.checked)} />Show as table</label>

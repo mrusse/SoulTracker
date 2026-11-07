@@ -69,6 +69,21 @@ class LogFollower:
             self.on_line(raw.decode("utf-8", errors="replace"))
         return offset + end
 
+    def backlog(self) -> int:
+        """Roughly how many bytes are still unread (current file, plus the rest of .1 after a rotation)."""
+        if not self.path.exists():
+            return 0
+        size = os.path.getsize(self.path)
+        old = os.path.getsize(self.old_path) if self.old_path.exists() else 0
+        st = self._load()
+        if st is None:
+            return size + old
+        if self._matches(self.path, st) and size >= st["offset"]:
+            return size - st["offset"]
+        if self.old_path.exists() and self._matches(self.old_path, st):
+            old = max(0, old - st["offset"])
+        return old + size
+
     def poll(self) -> None:
         """Read whatever is new. Call repeatedly (e.g. every few seconds)."""
         if not self.path.exists():

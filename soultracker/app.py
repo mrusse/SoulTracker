@@ -27,9 +27,12 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
 from . import lastfm, media, queries
-from .db import connect, get_state, set_state
+from .db import CLIENTS, connect, get_state, set_state
 from pydantic import BaseModel
 from .ingest import Ingestor
+from . import aggregates
+from .nicotine import NicotineFollower, NicotineTracker, catch_up_progress
+from .tracker import Tracker
 from .shares import Shares
 
 log = logging.getLogger("soultracker")
@@ -52,6 +55,40 @@ def log_path() -> str:
     return next((c for c in LOG_CANDIDATES if Path(c).exists()), LOG_CANDIDATES[0])
 
 
+# Nicotine+: mount its logs folder (or logs/transfers) at /nicotine, or point SOULTRACKER_NICOTINE at either.
+NICOTINE_ENV = os.environ.get("SOULTRACKER_NICOTINE", "")
+# Import Nicotine+'s existing logs the first time they're found (set to false to start from "now").
+NICOTINE_HISTORY = os.environ.get("SOULTRACKER_NICOTINE_HISTORY", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
+def nicotine_path() -> str | None:
+    """The folder holding Nicotine+'s uploads_*.log files (prefers a transfers/ subfolder)."""
+    root = Path(NICOTINE_ENV or "/nicotine")
+    candidates = [root / "transfers", root]
+    for c in candidates:
+        if c.is_dir() and any(c.glob("uploads_*.log")):
+            return str(c)
+    for c in candidates:  # set up, but nothing logged yet
+        if c.is_dir():
+            return str(c)
+    return None
+
+
+def sources(conn) -> list[dict]:
+    """The clients SoulTracker reads from, with their log health."""
+    out = []
+    qt = log_path()
+    if Path(qt).exists() or LOG_ENV or Path("/soulseek").exists():
+        out.append({"client": "soulseekqt", "label": CLIENTS["soulseekqt"], "path": qt,
+                    "exists": Path(qt).exists(), "last_line_at": get_state(conn, "last_line_at")})
+    nic = nicotine_path()
+    if nic or NICOTINE_ENV or Path("/nicotine").exists():
+        out.append({"client": "nicotine", "label": CLIENTS["nicotine"], "path": nic or NICOTINE_ENV or "/nicotine",
+                    "exists": bool(nic), "last_line_at": get_state(conn, "last_line_at_nicotine"),
+                    "importing": catch_up_progress(conn, nic) if nic else None})
+    return out
+
+
 DB_PATH = os.environ.get("SOULTRACKER_DB", "/config/soultracker.db")
 SHARE_ROOTS = [s for s in os.environ.get("SOULTRACKER_SHARES", "/shares").split(",") if s.strip()]
 PASSWORD = os.environ.get("SOULTRACKER_PASSWORD", "")
@@ -65,26 +102,40 @@ def _now() -> str:
 
 def ingest_loop(stop: threading.Event) -> None:
     conn = connect(DB_PATH)
-    # Wait for the log to appear (e.g. the hook hasn't written anything yet).
-    while not Path(log_path()).exists() and not stop.wait(POLL):
-        pass
-    ing = Ingestor(conn, log_path())
-    log.info("reading %s", log_path())
+    qt: Ingestor | None = None
+    nic: NicotineFollower | None = None
     shares = Shares(SHARE_ROOTS)
     last_share_scan = 0.0
     last_scrobble_retry = [0.0]
     while not stop.is_set():
         try:
-            before = ing.lines
-            ing.poll()
+            # Each client is optional and picked up as soon as its log appears.
+            if qt is None and Path(log_path()).exists():
+                qt = Ingestor(conn, log_path(), shares.size_of)
+                log.info("reading SoulseekQt log %s", log_path())
+            if nic is None and nicotine_path():
+                nic = NicotineFollower(conn, nicotine_path(), NicotineTracker(conn, Tracker(conn, shares.size_of)),
+                                       import_history=NICOTINE_HISTORY)
+                log.info("reading Nicotine+ logs in %s", nicotine_path())
+            for source, state_key in ((qt, "last_line_at"), (nic, "last_line_at_nicotine")):
+                if source is None:
+                    continue
+                before = source.lines
+                if isinstance(source, Ingestor):
+                    source.poll()  # its own transaction (and bulk handling)
+                else:
+                    with conn:
+                        source.poll()
+                if source.lines > before:
+                    with conn:
+                        set_state(conn, state_key, _now())
             with conn:
-                if ing.lines > before:
-                    set_state(conn, "last_line_at", _now())
                 if time.time() - last_share_scan > 3600:  # pick up newly added share folders
                     shares.refresh()
                     last_share_scan = time.time()
                 while shares.update_sizes(conn) == 500:
                     pass
+            aggregates.refresh(conn)  # if something marked the totals for a rebuild
             lastfm.retry_loop_step(conn, last_scrobble_retry)
         except Exception:
             log.exception("ingest failed")
@@ -129,9 +180,15 @@ def api_health():
     return {"ok": True}
 
 
+@app.get("/api/sources")
+def api_sources(conn=Depends(db)):
+    """Which clients SoulTracker reads (only the ones that are set up), with their log health."""
+    return sources(conn)
+
+
 @app.get("/api/summary")
-def api_summary(conn=Depends(db)):
-    s = queries.summary(conn)
+def api_summary(client: str | None = None, conn=Depends(db)):
+    s = queries.summary(conn, client=client)
     path = log_path()
     s["log"] = {"path": path, "exists": Path(path).exists(),
                 "last_line_at": get_state(conn, "last_line_at")}
@@ -139,39 +196,39 @@ def api_summary(conn=Depends(db)):
 
 
 @app.get("/api/top/users")
-def api_top_users(by: str = "bytes", limit: int = 100, conn=Depends(db)):
-    return queries.top_users(conn, by, limit)
+def api_top_users(by: str = "bytes", limit: int = 100, client: str | None = None, conn=Depends(db)):
+    return queries.top_users(conn, by, limit, client=client)
 
 
 @app.get("/api/top/folders")
-def api_top_folders(by: str = "users", limit: int = 100, conn=Depends(db)):
-    return queries.top_folders(conn, by, limit)
+def api_top_folders(by: str = "users", limit: int = 100, client: str | None = None, conn=Depends(db)):
+    return queries.top_folders(conn, by, limit, client=client)
 
 
 @app.get("/api/users")
-def api_users(sort: str = "size", search: str | None = None, conn=Depends(db)):
-    return queries.users(conn, sort, search)
+def api_users(sort: str = "size", search: str | None = None, client: str | None = None, conn=Depends(db)):
+    return queries.users(conn, sort, search, client=client)
 
 
 @app.get("/api/user")
-def api_user(name: str, conn=Depends(db)):
-    d = queries.user_detail(conn, name)
+def api_user(name: str, client: str | None = None, conn=Depends(db)):
+    d = queries.user_detail(conn, name, client=client)
     if d is None:
         raise HTTPException(404, "no such user")
     return d
 
 
 @app.get("/api/folder")
-def api_folder(path: str, conn=Depends(db)):
-    d = queries.folder_detail(conn, path)
+def api_folder(path: str, client: str | None = None, conn=Depends(db)):
+    d = queries.folder_detail(conn, path, client=client)
     if d is None:
         raise HTTPException(404, "no such folder")
     return d
 
 
 @app.get("/api/file/{file_id}")
-def api_file(file_id: int, conn=Depends(db)):
-    d = queries.file_detail(conn, file_id)
+def api_file(file_id: int, client: str | None = None, conn=Depends(db)):
+    d = queries.file_detail(conn, file_id, client=client)
     if d is None:
         raise HTTPException(404, "no such file")
     return d
@@ -345,41 +402,42 @@ def api_lastfm_enabled(body: dict, conn=Depends(db)):
 
 
 @app.get("/api/search")
-def api_search(q: str = "", conn=Depends(db)):
-    return queries.search(conn, q) if q.strip() else {"users": [], "folders": [], "files": []}
+def api_search(q: str = "", client: str | None = None, conn=Depends(db)):
+    return queries.search(conn, q, client=client) if q.strip() else {"users": [], "folders": [], "files": []}
 
 
 @app.get("/api/recent")
-def api_recent(limit: int = 50, conn=Depends(db)):
-    return queries.recent(conn, limit)
+def api_recent(limit: int = 50, client: str | None = None, conn=Depends(db)):
+    return queries.recent(conn, limit, client=client)
 
 
 @app.get("/api/charts/timeseries")
-def api_timeseries(bucket: str = "day", since: str | None = None, conn=Depends(db)):
-    return queries.timeseries(conn, bucket, since)
+def api_timeseries(bucket: str = "day", since: str | None = None, client: str | None = None, conn=Depends(db)):
+    return queries.timeseries(conn, bucket, since, client=client)
 
 
 @app.get("/api/charts/heatmap")
-def api_heatmap(since: str | None = None, conn=Depends(db)):
-    return queries.heatmap(conn, since)
+def api_heatmap(since: str | None = None, client: str | None = None, conn=Depends(db)):
+    return queries.heatmap(conn, since, client=client)
 
 
 @app.get("/api/outcomes")
-def api_outcomes(conn=Depends(db)):
-    return queries.outcomes(conn)
+def api_outcomes(client: str | None = None, conn=Depends(db)):
+    return queries.outcomes(conn, client=client)
 
 
 @app.get("/api/diagnostics")
-def api_diagnostics(conn=Depends(db)):
-    s = queries.summary(conn)
+def api_diagnostics(client: str | None = None, conn=Depends(db)):
+    s = queries.summary(conn, client=client)
     path = log_path()
     return {
         "counts": {k: s[k] for k in ("failed", "cancelled", "denied", "queued", "uploads")},
-        **queries.outcomes(conn, limit=10),
-        "unknown_sizes": queries.unknown_sizes(conn),
+        **queries.outcomes(conn, limit=10, client=client),
+        "unknown_sizes": queries.unknown_sizes(conn, client=client),
         "log": {"path": path, "exists": Path(path).exists(), "last_line_at": get_state(conn, "last_line_at"),
                 "first_seen": s["first_seen"], "last_seen": s["last_seen"]},
         "shares": SHARE_ROOTS,
+        "sources": sources(conn),
     }
 
 
@@ -397,6 +455,7 @@ def api_hide(item: dict, conn=Depends(db)):
         raise HTTPException(400, "kind must be user/folder/file and value is required")
     with conn:
         queries.hide(conn, item["kind"], item["value"])
+    aggregates.refresh_soon(conn)
     return {"ok": True}
 
 
@@ -404,6 +463,7 @@ def api_hide(item: dict, conn=Depends(db)):
 def api_unhide(kind: str, value: str, conn=Depends(db)):
     with conn:
         queries.unhide(conn, kind, value)
+    aggregates.refresh_soon(conn)
     return {"ok": True}
 
 

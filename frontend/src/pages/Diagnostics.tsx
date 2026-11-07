@@ -1,6 +1,7 @@
+import { Fragment } from 'react'
 import { api } from '../api'
 import { Status } from '../components'
-import { ago, count, date, folderName } from '../format'
+import { ago, bytes, count, date, folderName } from '../format'
 import { navigate, useData, useName, useSettings } from '../state'
 
 /** The "under the hood" numbers: failures, uploads without sizes, log status. Lives on Settings. */
@@ -99,10 +100,23 @@ export default function Diagnostics() {
         </>
       )}
 
-      <h3 className="section">Log</h3>
+      <h3 className="section">{d.sources.length > 1 ? 'Logs' : 'Log'}</h3>
       <dl className="kv">
-        <dt>File</dt><dd>{d.log.path}{!d.log.exists && <span className="sub"> (not found)</span>}</dd>
-        <dt>Last new line</dt><dd>{d.log.last_line_at ? `${ago(d.log.last_line_at)} (${date(d.log.last_line_at)})` : '—'}</dd>
+        {d.sources.map((src) => (
+          <Fragment key={src.client}>
+            <dt>{src.label}</dt>
+            <dd>
+              {src.path}{!src.exists && <span className="sub"> (not found)</span>}
+              {src.importing && (
+                <div className="sub" style={{ color: 'var(--accent)' }}>
+                  Importing history: {Math.floor((100 * src.importing.done) / Math.max(1, src.importing.total))}%
+                  {' '}({bytes(src.importing.done)} of {bytes(src.importing.total)}). Totals update when it finishes.
+                </div>
+              )}
+              <div className="sub">Last new line: {src.last_line_at ? `${ago(src.last_line_at)} (${date(src.last_line_at)})` : '—'}</div>
+            </dd>
+          </Fragment>
+        ))}
         <dt>History covers</dt><dd>{d.log.first_seen ? `${date(d.log.first_seen)} – ${date(d.log.last_seen)}` : '—'}</dd>
         <dt>Shares</dt><dd>{d.shares.length ? d.shares.join(', ') : 'none'}</dd>
       </dl>

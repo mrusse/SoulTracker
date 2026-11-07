@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type UserDetail, type UserFile } from '../api'
-import { Status } from '../components'
+import { ClientFilter, ClientTag, Status } from '../components'
 import { bytes, count, date, dateSeconds, folderName, size, speed } from '../format'
 import { Cover, FileMenu, FolderMenu, isAudio, isPlayable, usePlayer, type Track } from '../player'
-import { navigate, useData, useName, useSettings, type FileSort } from '../state'
+import { navigate, useClient, useData, useName, useSettings, type FileSort } from '../state'
 
 type Sel = { kind: 'user'; value: string } | { kind: 'folder'; value: string; user?: string } | { kind: 'file'; value: number; user?: string; row?: number }
 
@@ -26,6 +26,7 @@ function selFromParams(p: URLSearchParams): Sel | null {
 export default function Users({ params }: { params: URLSearchParams }) {
   const name = useName()
   const { fullPath, set, userSort: sort, expandAll } = useSettings()
+  const client = useClient()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())
@@ -38,12 +39,14 @@ export default function Users({ params }: { params: URLSearchParams }) {
     return () => clearTimeout(t)
   }, [query])
 
-  const users = useData(() => api.users(sort), [sort, version])
-  const results = useData(() => (debounced ? api.search(debounced) : Promise.resolve(null)), [debounced, version])
+  const users = useData(() => api.users(sort, undefined, client), [sort, version, client])
+  const results = useData(() => (debounced ? api.search(debounced, client) : Promise.resolve(null)), [debounced, version, client])
+  // cached user trees belong to the client filter they were loaded with
+  useEffect(() => { setDetails({}) }, [client])
 
   const loadUser = (u: string) => {
     if (details[u]) return
-    api.user(u).then((d) => setDetails((prev) => ({ ...prev, [u]: d }))).catch(() => {})
+    api.user(u, client).then((d) => setDetails((prev) => ({ ...prev, [u]: d }))).catch(() => {})
   }
 
   // Open the selected user's branch when arriving from a link.
@@ -109,6 +112,7 @@ export default function Users({ params }: { params: URLSearchParams }) {
       <div className="page-head">
         <h1>Users &amp; files</h1>
         <div className="controls">
+          <ClientFilter />
           <input type="search" placeholder="Search users, folders, files…" value={query} onChange={(e) => setQuery(e.target.value)} />
           {!debounced && (
             <select value={sort} onChange={(e) => set({ userSort: e.target.value })} aria-label="Sort users by">
@@ -293,7 +297,8 @@ function RemoveButton({ kind, value, label, onRemoved }: { kind: 'user' | 'folde
 
 function UserInfo({ name: user, onRemoved }: { name: string; onRemoved: () => void }) {
   const name = useName()
-  const { data, error } = useData(() => api.user(user), [user])
+  const client = useClient()
+  const { data, error } = useData(() => api.user(user, client), [user, client])
   if (error) return <div className="empty">{error.startsWith('404') ? 'No uploads for this user.' : error}</div>
   if (!data) return <div className="empty">Loading…</div>
   return (
@@ -321,7 +326,8 @@ function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () =
   const name = useName()
   const player = usePlayer()
   const { fileSort } = useSettings()
-  const { data, error } = useData(() => api.folder(path), [path])
+  const client = useClient()
+  const { data, error } = useData(() => api.folder(path, client), [path, client])
   if (error) return <div className="empty">{error}</div>
   if (!data) return <div className="empty">Loading…</div>
   const files = fileSort === 'time'
@@ -388,7 +394,8 @@ function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () =
 function FileInfo({ id, onRemoved, select }: { id: number; onRemoved: () => void; select: (s: Sel) => void }) {
   const name = useName()
   const player = usePlayer()
-  const { data, error } = useData(() => api.file(id), [id])
+  const client = useClient()
+  const { data, error } = useData(() => api.file(id, client), [id, client])
   if (error) return <div className="empty">{error}</div>
   if (!data) return <div className="empty">Loading…</div>
   const t: Track = { id: data.file_id, name: data.name, folder: data.folder }
@@ -426,8 +433,8 @@ function FileInfo({ id, onRemoved, select }: { id: number; onRemoved: () => void
         <tbody>
           {data.history.map((h, i) => (
             <tr key={i} title={h.reason ?? undefined} className="clickable" onClick={() => select({ kind: 'user', value: h.user })}>
-              <td className="clip">{name(h.user)}</td>
-              <td><Status status={h.status} /></td>
+              <td className="clip">{name(h.user)}<ClientTag client={h.client} /></td>
+              <td><Status status={h.status} client={h.client} /></td>
               <td className="num">{dateSeconds(h.started_at ?? h.requested_at)}</td>
             </tr>
           ))}

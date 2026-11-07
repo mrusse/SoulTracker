@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import type { Client } from './api'
 import { pseudonym } from './format'
 
 export type Theme = 'system' | 'light' | 'dark'
@@ -9,6 +10,7 @@ interface Settings {
   fullPath: boolean
   fileSort: FileSort
   userSort: string      // Users & files: how the user list is sorted
+  client: 'all' | Client  // which client's uploads to show
   expandAll: boolean    // Users & files: expand every user
   theme: Theme
   set: (patch: Partial<Omit<Settings, 'set'>>) => void
@@ -26,7 +28,7 @@ function load(): Partial<Settings> {
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [s, setS] = useState(() => ({ privacy: false, fullPath: false, fileSort: 'name' as FileSort, userSort: 'size', expandAll: false, theme: 'system' as Theme, ...load() }))
+  const [s, setS] = useState(() => ({ privacy: false, fullPath: false, fileSort: 'name' as FileSort, userSort: 'size', expandAll: false, client: 'all' as 'all' | Client, theme: 'system' as Theme, ...load() }))
   const set = useCallback((patch: Partial<Omit<Settings, 'set'>>) => {
     setS((prev) => {
       const next = { ...prev, ...patch }
@@ -104,4 +106,10 @@ export function href(page: string, params: Record<string, string> = {}): string 
 
 export function navigate(page: string, params: Record<string, string> = {}) {
   window.location.hash = href(page, params)
+}
+
+/** The client filter as an API argument: undefined means all clients. */
+export function useClient(): Client | undefined {
+  const { client } = useSettings()
+  return client === 'all' ? undefined : client
 }

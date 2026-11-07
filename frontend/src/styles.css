@@ -317,3 +317,9 @@ button.cover { border: 0; padding: 0; cursor: pointer; }
 }
 .art-view img { max-width: min(90vw, 1000px); max-height: 90vh; object-fit: contain; border-radius: 6px; box-shadow: 0 16px 60px rgba(0, 0, 0, 0.5); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* which client an upload came from */
+.client-tag {
+  display: inline-block; font-size: 10px; font-weight: 600; line-height: 1; padding: 3px 5px; border-radius: 4px;
+  margin-left: 6px; vertical-align: 1px; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border);
+}

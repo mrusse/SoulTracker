@@ -19,7 +19,7 @@ export interface UserRow { user: string; uploads: number; bytes: number; first_u
 export interface FolderRow { folder: string; users: number; uploads: number; bytes: number; last_upload: string; last_user: string | null }
 
 export interface UserFile {
-  transfer_id: number; file_id: number; vpath: string; folder: string; name: string; size: number | null
+  transfer_id: number; client: Client; file_id: number; vpath: string; folder: string; name: string; size: number | null
   time: string; speed: number | null; status: string
 }
 export interface UserDetail {
@@ -36,10 +36,10 @@ export interface FolderDetail {
 export interface FileDetail {
   file_id: number; vpath: string; folder: string; name: string; size: number | null
   uploads: number; users: number; last_user: string | null; last_upload: string | null
-  history: { user: string; status: string; reason: string | null; requested_at: string | null; started_at: string | null; ended_at: string | null; speed: number | null }[]
+  history: { user: string; client: Client; status: string; reason: string | null; requested_at: string | null; started_at: string | null; ended_at: string | null; speed: number | null }[]
 }
 export interface RecentRow {
-  user: string; file_id: number | null; name: string | null; folder: string | null; size: number | null
+  user: string; client: Client; file_id: number | null; name: string | null; folder: string | null; size: number | null
   status: string; reason: string | null; time: string; ended_at: string | null; speed: number | null
 }
 export interface SearchResult {
@@ -61,6 +61,7 @@ export interface Diagnostics extends Outcomes {
   }
   log: { path: string; exists: boolean; last_line_at: string | null; first_seen: string | null; last_seen: string | null }
   shares: string[]
+  sources: Source[]
 }
 export interface TrackMeta {
   title: string | null; artist: string | null; album: string | null; albumartist: string | null
@@ -73,6 +74,11 @@ export interface LastFMStatus {
   sent: number; pending: number
   now_playing: { at: number; artist: string | null; title: string | null; ok: boolean; error: string | null } | null
   recent: { artist: string | null; title: string | null; album: string | null; played_at: number; status: string; error: string | null }[]
+}
+export type Client = 'soulseekqt' | 'nicotine'
+export interface Source {
+  client: Client; label: string; path: string; exists: boolean; last_line_at: string | null
+  importing?: { done: number; total: number } | null   // Nicotine+ history import in progress
 }
 export interface HiddenItem { kind: 'user' | 'folder' | 'file'; value: string }
 
@@ -94,18 +100,21 @@ async function send(method: string, path: string, body?: unknown, params: Record
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
 }
 
+// c = which client to show ('soulseekqt' / 'nicotine'), or undefined for all of them
+type C = Client | undefined
 export const api = {
-  summary: () => get<Summary>('summary'),
-  topUsers: (by: 'bytes' | 'uploads', limit = 100) => get<UserRow[]>('top/users', { by, limit }),
-  topFolders: (by: 'users' | 'uploads' | 'bytes', limit = 100) => get<FolderRow[]>('top/folders', { by, limit }),
-  users: (sort: string, search?: string) => get<UserRow[]>('users', { sort, search }),
-  user: (name: string) => get<UserDetail>('user', { name }),
-  folder: (path: string) => get<FolderDetail>('folder', { path }),
-  file: (id: number) => get<FileDetail>(`file/${id}`),
-  search: (q: string) => get<SearchResult>('search', { q }),
-  recent: (limit = 30) => get<RecentRow[]>('recent', { limit }),
-  timeseries: (bucket: string, since?: string) => get<SeriesPoint[]>('charts/timeseries', { bucket, since }),
-  heatmap: (since?: string) => get<HeatCell[]>('charts/heatmap', { since }),
+  sources: () => get<Source[]>('sources'),
+  summary: (c?: C) => get<Summary>('summary', { client: c }),
+  topUsers: (by: 'bytes' | 'uploads', limit = 100, c?: C) => get<UserRow[]>('top/users', { by, limit, client: c }),
+  topFolders: (by: 'users' | 'uploads' | 'bytes', limit = 100, c?: C) => get<FolderRow[]>('top/folders', { by, limit, client: c }),
+  users: (sort: string, search?: string, c?: C) => get<UserRow[]>('users', { sort, search, client: c }),
+  user: (name: string, c?: C) => get<UserDetail>('user', { name, client: c }),
+  folder: (path: string, c?: C) => get<FolderDetail>('folder', { path, client: c }),
+  file: (id: number, c?: C) => get<FileDetail>(`file/${id}`, { client: c }),
+  search: (q: string, c?: C) => get<SearchResult>('search', { q, client: c }),
+  recent: (limit = 30, c?: C) => get<RecentRow[]>('recent', { limit, client: c }),
+  timeseries: (bucket: string, since?: string, c?: C) => get<SeriesPoint[]>('charts/timeseries', { bucket, since, client: c }),
+  heatmap: (since?: string, c?: C) => get<HeatCell[]>('charts/heatmap', { since, client: c }),
   outcomes: () => get<Outcomes>('outcomes'),
   diagnostics: () => get<Diagnostics>('diagnostics'),
   meta: (id: number) => get<TrackMeta>(`file/${id}/meta`),

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { api } from '../api'
 import type { RecentRow as Recent } from '../api'
-import { Seg, Status } from '../components'
+import { ClientFilter, ClientTag, Seg, Status } from '../components'
 import { FileMenu, isPlayable, useClickOrDouble, usePlayer, type Track } from '../player'
 import { ago, bytes, count, date, folderName, size, speed } from '../format'
-import { navigate, useData, useName, useSettings } from '../state'
+import { navigate, useClient, useData, useName, useSettings } from '../state'
 
 const REFRESH = 15000
 
@@ -13,10 +13,11 @@ export default function Dashboard() {
   const { fullPath } = useSettings()
   const [userBy, setUserBy] = useState<'bytes' | 'uploads'>('bytes')
   const [folderBy, setFolderBy] = useState<'users' | 'uploads'>('users')
-  const summary = useData(api.summary, [], REFRESH)
-  const users = useData(() => api.topUsers(userBy, 15), [userBy], REFRESH)
-  const folders = useData(() => api.topFolders(folderBy, 15), [folderBy], REFRESH)
-  const recent = useData(() => api.recent(15), [], REFRESH)
+  const client = useClient()
+  const summary = useData(() => api.summary(client), [client], REFRESH)
+  const users = useData(() => api.topUsers(userBy, 15, client), [userBy, client], REFRESH)
+  const folders = useData(() => api.topFolders(folderBy, 15, client), [folderBy, client], REFRESH)
+  const recent = useData(() => api.recent(15, client), [client], REFRESH)
 
   const s = summary.data
   if (summary.error && !s) return <div className="empty">Couldn't load stats: {summary.error}</div>
@@ -27,7 +28,10 @@ export default function Dashboard() {
     <>
       <div className="page-head">
         <h1>Dashboard</h1>
-        <span className="sub">{s.first_seen ? `Tracking since ${date(s.first_seen)}` : 'Waiting for log data'}</span>
+        <div className="controls">
+          <span className="sub">{s.first_seen ? `Tracking since ${date(s.first_seen)}` : 'Waiting for log data'}</span>
+          <ClientFilter />
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -131,8 +135,8 @@ function RecentRow({ r }: { r: Recent }) {
     <tr className={`${r.file_id ? 'clickable' : ''} ${t && player.current?.id === t.id ? 'now-playing' : ''}`} {...clicks}>
       <td style={{ whiteSpace: 'nowrap' }} title={date(r.time)}>{ago(r.time)}</td>
       <td className="clip" style={{ width: '22%' }}>{name(r.user)}</td>
-      <td className="clip" style={{ width: '48%' }} title={r.folder ? folderName(r.folder, true) : undefined}>{r.name ?? <span className="sub">unknown file (requested before tracking began)</span>}</td>
-      <td title={r.reason ?? undefined}><Status status={r.status} /></td>
+      <td className="clip" style={{ width: '48%' }} title={r.folder ? folderName(r.folder, true) : undefined}>{r.name ?? <span className="sub">unknown file (requested before tracking began)</span>}<ClientTag client={r.client} /></td>
+      <td title={r.reason ?? undefined}><Status status={r.status} client={r.client} /></td>
       <td className="num">{size(r.size)}</td>
     </tr>
   )

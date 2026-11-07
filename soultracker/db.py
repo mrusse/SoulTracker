@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE users (
@@ -93,7 +93,49 @@ CREATE INDEX scrobbles_status ON scrobbles(status, played_at);
 """,
 }
 
+CLIENTS = {"soulseekqt": "SoulseekQt", "nicotine": "Nicotine+"}
+
+
+def norm_vpath(vpath: str) -> str:
+    r"""Client-neutral path: SoulseekQt's "@@abcde\Music\x.mp3" -> "Music\x.mp3" (Nicotine+'s form),
+    so a file uploaded by either client is the same file."""
+    if vpath.startswith("@@"):
+        _, sep, rest = vpath.partition("\\")
+        return rest if sep else vpath
+    return vpath
+
+
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    """Multiple clients: tag rows with their client and normalize file paths (merging duplicates)."""
+    conn.execute("ALTER TABLE transfers ADD COLUMN client TEXT NOT NULL DEFAULT 'soulseekqt'")
+    conn.execute("ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT 'soulseekqt'")
+    conn.execute("CREATE INDEX transfers_client ON transfers(client, status, started_at)")
+    for fid, vpath in conn.execute("SELECT id, vpath FROM files WHERE vpath LIKE '@@%'").fetchall():
+        nv = norm_vpath(vpath)
+        other = conn.execute("SELECT id FROM files WHERE vpath=?", (nv,)).fetchone()
+        if other:  # already there under its normalized name: keep one row
+            conn.execute("UPDATE transfers SET file_id=? WHERE file_id=?", (other[0], fid))
+            conn.execute("DELETE FROM files WHERE id=?", (fid,))
+        else:
+            folder, _, name = nv.rpartition("\\")
+            conn.execute("UPDATE files SET vpath=?, folder=?, name=? WHERE id=?", (nv, folder, name, fid))
+    for kind, value in conn.execute("SELECT kind, value FROM hidden WHERE kind IN ('folder','file')").fetchall():
+        nv = norm_vpath(value)
+        if nv != value:
+            conn.execute("DELETE FROM hidden WHERE kind=? AND value=?", (kind, value))
+            conn.execute("INSERT OR IGNORE INTO hidden(kind, value) VALUES(?, ?)", (kind, nv))
+
+
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    """Pre-computed totals (see aggregates.py), filled from the existing data."""
+    from . import aggregates
+    aggregates.install(conn)
+    aggregates.rebuild(conn)
+
+
 COMPLETED_STATUSES = ("completed", "uploading")
+MIGRATIONS[3] = _migrate_v3
+MIGRATIONS[4] = _migrate_v4
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -110,7 +152,11 @@ def connect(path: str | Path) -> sqlite3.Connection:
             conn.executescript(SCHEMA)
             version = 1
         for v in range(version + 1, SCHEMA_VERSION + 1):
-            conn.executescript(MIGRATIONS[v])
+            step = MIGRATIONS[v]
+            if callable(step):
+                step(conn)
+            else:
+                conn.executescript(step)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
     return conn

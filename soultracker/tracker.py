@@ -16,7 +16,7 @@ from collections import OrderedDict
 from datetime import datetime
 
 from . import parser as p
-from .db import COMPLETED_STATUSES
+from .db import COMPLETED_STATUSES, norm_vpath
 
 LIVE = ("uploading", "completed")
 
@@ -26,8 +26,10 @@ def _ts(e: p.Event) -> str:
 
 
 class Tracker:
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: sqlite3.Connection, size_of=None) -> None:
         self.conn = conn
+        # size lookup for new files (Shares.size_of), so totals have the right bytes from the start
+        self.size_of = size_of
         self._users: dict[str, int] = {}
         self._files: dict[str, int] = {}
         self._active: OrderedDict[str, None] = OrderedDict()  # users with an upload running
@@ -44,24 +46,32 @@ class Tracker:
         return uid
 
     def file_id(self, vpath: str) -> int:
+        vpath = norm_vpath(vpath)  # the same file under either client
         fid = self._files.get(vpath)
         if fid is None:
             folder, _, name = vpath.rpartition("\\")
-            self.conn.execute("INSERT OR IGNORE INTO files(vpath, folder, name) VALUES(?, ?, ?)",
-                              (vpath, folder, name))
+            if self.size_of is not None and not self.conn.execute(
+                    "SELECT 1 FROM files WHERE vpath=?", (vpath,)).fetchone():
+                size = self.size_of(vpath)
+                self.conn.execute(
+                    "INSERT INTO files(vpath, folder, name, size, size_checked_at) VALUES(?, ?, ?, ?, datetime('now', 'localtime'))",
+                    (vpath, folder, name, size))
+            else:
+                self.conn.execute("INSERT OR IGNORE INTO files(vpath, folder, name) VALUES(?, ?, ?)",
+                                  (vpath, folder, name))
             fid = self.conn.execute("SELECT id FROM files WHERE vpath=?", (vpath,)).fetchone()[0]
             self._files[vpath] = fid
         return fid
 
     def _oldest_queued(self, uid: int) -> int | None:
         row = self.conn.execute(
-            "SELECT id FROM transfers WHERE user_id=? AND status='queued' "
+            "SELECT id FROM transfers WHERE client='soulseekqt' AND user_id=? AND status='queued' "
             "ORDER BY requested_at, id LIMIT 1", (uid,)).fetchone()
         return row[0] if row else None
 
     def _latest_start(self, uid: int) -> sqlite3.Row | None:
         return self.conn.execute(
-            "SELECT id, status, file_id FROM transfers WHERE user_id=? AND started_at IS NOT NULL "
+            "SELECT id, status, file_id FROM transfers WHERE client='soulseekqt' AND user_id=? AND started_at IS NOT NULL "
             "ORDER BY started_at DESC, id DESC LIMIT 1", (uid,)).fetchone()
 
     # ---- event handling ----
@@ -81,7 +91,7 @@ class Tracker:
     def _on_queued(self, e: p.Event) -> None:
         uid, fid = self.user_id(e.user), self.file_id(e.path)
         exists = self.conn.execute(
-            "SELECT 1 FROM transfers WHERE user_id=? AND file_id=? AND status='queued'",
+            "SELECT 1 FROM transfers WHERE client='soulseekqt' AND user_id=? AND file_id=? AND status='queued'",
             (uid, fid)).fetchone()
         if not exists:
             self.conn.execute(
@@ -145,7 +155,7 @@ class Tracker:
         name = (e.path or "").lower()
         rows = self.conn.execute(
             "SELECT t.id, t.status, f.name FROM transfers t LEFT JOIN files f ON f.id = t.file_id "
-            "WHERE t.user_id=? AND t.started_at IS NOT NULL "
+            "WHERE t.client='soulseekqt' AND t.user_id=? AND t.started_at IS NOT NULL "
             "ORDER BY t.started_at DESC, t.id DESC LIMIT 50", (uid,)).fetchall()
         target = next((r["id"] for r in rows
                        if r["status"] in LIVE and (r["name"] or "").lower() == name), None)
@@ -162,7 +172,7 @@ class Tracker:
             return
         user, _ = self._active.popitem(last=True)
         row = self.conn.execute(
-            "SELECT id FROM transfers WHERE user_id=? AND status='uploading' "
+            "SELECT id FROM transfers WHERE client='soulseekqt' AND user_id=? AND status='uploading' "
             "ORDER BY started_at, id LIMIT 1", (self.user_id(user),)).fetchone()
         if row:
             self.conn.execute(
@@ -172,14 +182,20 @@ class Tracker:
 
 def rebuild(conn: sqlite3.Connection) -> int:
     """Recompute transfers from the stored events (e.g. after improving the logic)."""
-    conn.execute("DELETE FROM transfers")
+    # Only SoulseekQt uploads are derived from events; Nicotine+ rows are kept as they are.
+    from . import aggregates
+    aggregates.set_paused(conn, True)
+    conn.execute("DELETE FROM transfers WHERE client='soulseekqt'")
     tracker = Tracker(conn)
     n = 0
-    for row in conn.execute("SELECT ts, kind, user, path, detail, value FROM events ORDER BY id").fetchall():
+    for row in conn.execute("SELECT ts, kind, user, path, detail, value FROM events "
+                            "WHERE client='soulseekqt' ORDER BY id").fetchall():
         e = p.Event(datetime.strptime(row["ts"], "%Y-%m-%d %H:%M:%S"), row["kind"],
                     row["user"], row["path"], row["detail"], row["value"])
         tracker.apply(e, store=False)
         n += 1
+    aggregates.set_paused(conn, False)
+    aggregates.rebuild(conn)
     conn.commit()
     return n
 

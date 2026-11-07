@@ -1,11 +1,11 @@
-import { api } from './api'
 import { ago } from './format'
 import Charts from './pages/Charts'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
 import { PlayerBar, usePlayer } from './player'
-import { href, useData, useRoute } from './state'
+import { useSources } from './components'
+import { href, useRoute } from './state'
 
 const PAGES = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -17,20 +17,29 @@ const PAGES = [
 // The client writes constantly while it's running, so a quiet log usually means trouble.
 const QUIET_MINUTES = 15
 
+/** One line per client: is its log there, and is it still being written to? */
 function Health() {
-  const { data, error } = useData(api.summary, [], 30000)
+  const { data, error } = useSources()
   if (error) return <div className="health"><span className="dot" style={{ background: 'var(--critical)' }} />Can't reach the server</div>
   if (!data) return null
-  const last = data.log.last_line_at
-  const quiet = !last || Date.now() - new Date(last.replace(' ', 'T')).getTime() > QUIET_MINUTES * 60000
-  let color = 'var(--good)'
-  let text = `Log active, ${ago(last)}`
-  if (!data.log.exists) { color = 'var(--critical)'; text = 'Log file not found' }
-  else if (quiet) { color = 'var(--warning)'; text = `No new log lines ${last ? ago(last) : 'yet'}` }
+  if (data.length === 0) return <div className="health"><span className="dot" style={{ background: 'var(--critical)' }} />No client logs found</div>
   return (
-    <div className="health" title={data.log.path}>
-      <span className="dot" style={{ background: color }} />
-      <span>{text}</span>
+    <div>
+      {data.map((src) => {
+        const last = src.last_line_at
+        const quiet = !last || Date.now() - new Date(last.replace(' ', 'T')).getTime() > QUIET_MINUTES * 60000
+        let color = 'var(--good)'
+        let text = `active, ${ago(last)}`
+        if (src.importing) { color = 'var(--accent)'; text = `importing history ${Math.floor((100 * src.importing.done) / Math.max(1, src.importing.total))}%` }
+        else if (!src.exists) { color = 'var(--critical)'; text = 'log not found' }
+        else if (quiet) { color = 'var(--warning)'; text = `quiet ${last ? ago(last) : 'so far'}` }
+        return (
+          <div key={src.client} className="health" title={src.path}>
+            <span className="dot" style={{ background: color }} />
+            <span>{data.length > 1 ? `${src.label}: ${text}` : `Log ${text}`}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }
