@@ -177,7 +177,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [index, playing, queue.length, reload])
 
-  const clear = useCallback(() => { audio.current?.pause(); setQueue([]); setIndex(0); reload() }, [reload])
+  // Clear everything except the song that's playing; it carries on uninterrupted.
+  const clear = useCallback(() => {
+    setQueue(current ? [current] : [])
+    setIndex(0)
+  }, [current])
   const seek = useCallback((t: number) => { if (audio.current) audio.current.currentTime = t }, [])
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), [])
 
@@ -255,13 +259,19 @@ function clock(s: number): string {
 
 // ---------- cover image (falls back to a plain tile when there's no art) ----------
 
-export function Cover({ id, size }: { id: number | null; size: number }) {
-  const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [id])
+/** Cover art tile. With `onClick`, it's a button; `clickableOnlyWithArt` disables it when there's no art. */
+export function Cover({ id, size, onClick, label, clickableOnlyWithArt = false }: {
+  id: number | null; size: number; onClick?: () => void; label?: string; clickableOnlyWithArt?: boolean
+}) {
+  const [state, setState] = useState<'loading' | 'ok' | 'none'>('loading')
+  useEffect(() => setState(id == null ? 'none' : 'loading'), [id])
+  const img = id != null && state !== 'none' &&
+    <img src={coverUrl(id)} alt="" onLoad={() => setState('ok')} onError={() => setState('none')} />
+  const clickable = !!onClick && (!clickableOnlyWithArt || state === 'ok')
+  if (!clickable) return <div className="cover" style={{ width: size, height: size }}>{img}</div>
   return (
-    <div className="cover" style={{ width: size, height: size }}>
-      {id != null && !failed && <img src={coverUrl(id)} alt="" onError={() => setFailed(true)} />}
-    </div>
+    <button type="button" className="cover clickable-cover" style={{ width: size, height: size }}
+            onClick={onClick} aria-label={label} title={label}>{img}</button>
   )
 }
 
@@ -280,7 +290,7 @@ export function PlayerBar() {
   return (
     <div className="player">
       <div className="player-track">
-        <Cover id={t.id} size={48} />
+        <Cover id={t.id} size={48} onClick={() => p.showInfo(t)} label="File info" />
         <div className="player-text">
           <div className="player-title" title={title}>{title}</div>
           <div className="player-sub" title={sub}>{p.error ?? sub}</div>
@@ -332,7 +342,7 @@ function QueuePanel({ onClose }: { onClose: () => void }) {
         <strong>Queue</strong>
         <span className="sub">{p.queue.length} {p.queue.length === 1 ? 'track' : 'tracks'}</span>
         <span style={{ flex: 1 }} />
-        <button className="btn" onClick={p.clear}>Clear</button>
+        <button className="btn" onClick={p.clear} disabled={p.queue.length <= 1} title="Remove everything except the current song">Clear</button>
         <button className="icon-btn" onClick={onClose} aria-label="Close queue"><I d={CLOSE} size={16} /></button>
       </div>
       <div className="queue-list">
@@ -402,6 +412,8 @@ export function FolderMenu({ tracks, children }: { tracks: Track[]; children: Re
 function FileInfoDialog({ track, onClose }: { track: Track | null; onClose: () => void }) {
   const p = usePlayer()
   const [meta, setMeta] = useState<TrackMeta | null | undefined>(undefined)
+  const [zoom, setZoom] = useState(false)
+  useEffect(() => setZoom(false), [track])
   useEffect(() => {
     if (!track) return
     setMeta(undefined)
@@ -424,7 +436,7 @@ function FileInfoDialog({ track, onClose }: { track: Track | null; onClose: () =
           {track && (
             <>
               <div className="info-head">
-                <Cover id={track.id} size={140} />
+                <Cover id={track.id} size={140} onClick={() => setZoom(true)} label="Show cover art" clickableOnlyWithArt />
                 <div style={{ minWidth: 0 }}>
                   <Dialog.Title className="info-title">{meta?.title || track.name}</Dialog.Title>
                   <div className="sub">{[meta?.artist, meta?.album].filter(Boolean).join(' · ') || folderName(track.folder, false)}</div>
@@ -450,6 +462,16 @@ function FileInfoDialog({ track, onClose }: { track: Track | null; onClose: () =
                 </dl>
               )}
               <Dialog.Close className="icon-btn dialog-close" aria-label="Close"><I d={CLOSE} size={16} /></Dialog.Close>
+              {/* full-size cover: a nested dialog, so Esc or a click closes just this layer */}
+              <Dialog.Root open={zoom} onOpenChange={setZoom}>
+                <Dialog.Portal>
+                  <Dialog.Overlay className="dialog-overlay art-overlay" onClick={() => setZoom(false)} />
+                  <Dialog.Content className="art-view" aria-describedby={undefined} onClick={() => setZoom(false)}>
+                    <Dialog.Title className="visually-hidden">Cover art</Dialog.Title>
+                    <img src={coverUrl(track.id)} alt={`Cover art for ${meta?.album || track.name}`} />
+                  </Dialog.Content>
+                </Dialog.Portal>
+              </Dialog.Root>
             </>
           )}
         </Dialog.Content>
