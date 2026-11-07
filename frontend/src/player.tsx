@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, type TrackMeta } from './api'
 import { bytes, folderName } from './format'
-import { navigate } from './state'
+import { navigate, useSettings } from './state'
 
 export interface Track { id: number; name: string; folder: string | null }
 
@@ -43,6 +43,7 @@ interface Player {
   setVolume: (v: number) => void
   remove: (i: number) => void
   clear: () => void
+  clearHistory: () => void           // drop the songs already played
   showInfo: (t: Track) => void
 }
 
@@ -181,6 +182,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [index, playing, queue.length, reload])
 
   // Clear everything except the song that's playing; it carries on uninterrupted.
+  // Remove what's been played; the current song stays first and keeps playing (no reload).
+  const clearHistory = useCallback(() => {
+    setQueue((q) => q.slice(index))
+    setIndex(0)
+  }, [index])
+
   const clear = useCallback(() => {
     setQueue(current ? [current] : [])
     setIndex(0)
@@ -252,7 +259,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const value: Player = {
     queue, index, current, meta, playing, time, duration, volume, error,
-    play, playAll, playNext, enqueue, jump: go, next, prev, toggle, seek, setVolume, remove, clear,
+    play, playAll, playNext, enqueue, jump: go, next, prev, toggle, seek, setVolume, remove, clear, clearHistory,
     showInfo: setInfo,
   }
 
@@ -379,19 +386,39 @@ export function PlayerBar() {
 
 function QueuePanel({ onClose }: { onClose: () => void }) {
   const p = usePlayer()
+  const { queueHistory: showHistory, set } = useSettings()
   const cur = useRef<HTMLDivElement>(null)
-  useEffect(() => { cur.current?.scrollIntoView({ block: 'center' }) }, [])
+  useEffect(() => { cur.current?.scrollIntoView({ block: 'center' }) }, [showHistory])
+  const played = p.index
+  const upNext = Math.max(0, p.queue.length - p.index - 1)
   return (
     <div className="queue-panel">
       <div className="queue-head">
         <strong>Queue</strong>
-        <span className="sub">{p.queue.length} {p.queue.length === 1 ? 'track' : 'tracks'}</span>
+        <span className="sub">{upNext} up next{played > 0 ? ` · ${played} played` : ''}</span>
         <span style={{ flex: 1 }} />
-        <button className="btn" onClick={p.clear} disabled={p.queue.length <= 1} title="Remove everything except the current song">Clear</button>
         <button className="icon-btn" onClick={onClose} aria-label="Close queue"><I d={CLOSE} size={16} /></button>
       </div>
+      <div className="queue-actions">
+        <button className={`btn small ${showHistory ? 'on' : ''}`} aria-pressed={showHistory} disabled={played === 0 && !showHistory}
+                onClick={() => set({ queueHistory: !showHistory })} title="Show or hide songs you've already played">
+          {showHistory ? 'Hide history' : 'Show history'}{played > 0 ? ` (${played})` : ''}
+        </button>
+        <button className="btn small" onClick={p.clearHistory} disabled={played === 0} title="Remove the songs you've already played">
+          Clear history
+        </button>
+        <span style={{ flex: 1 }} />
+        <button className="btn small" onClick={p.clear} disabled={p.queue.length <= 1} title="Remove everything except the current song">
+          Clear all
+        </button>
+      </div>
       <div className="queue-list">
-        {p.queue.map((t, i) => (
+        {played > 0 && !showHistory && (
+          <button className="queue-hidden" onClick={() => set({ queueHistory: true })}>
+            {played} played {played === 1 ? 'song' : 'songs'} hidden
+          </button>
+        )}
+        {p.queue.map((t, i) => i < p.index && !showHistory ? null : (
           <div key={`${t.id}-${i}`} ref={i === p.index ? cur : undefined}
                className={`queue-row ${i === p.index ? 'now' : ''} ${i < p.index ? 'past' : ''}`}
                onDoubleClick={() => p.jump(i)}>
