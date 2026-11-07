@@ -68,6 +68,11 @@ export interface TrackMeta {
   duration: number | null; bitrate: number | null; sample_rate: number | null; bits_per_sample: number | null
   channels: number | null; playable: boolean; format: string; size: number
 }
+export interface LastFMStatus {
+  configured: boolean; connected: boolean; user: string | null; enabled: boolean
+  sent: number; pending: number
+  recent: { artist: string | null; title: string | null; album: string | null; played_at: number; status: string; error: string | null }[]
+}
 export interface HiddenItem { kind: 'user' | 'folder' | 'file'; value: string }
 
 async function get<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
@@ -103,6 +108,12 @@ export const api = {
   outcomes: () => get<Outcomes>('outcomes'),
   diagnostics: () => get<Diagnostics>('diagnostics'),
   meta: (id: number) => get<TrackMeta>(`file/${id}/meta`),
+  nowPlaying: (np: { file_id: number | null; play_id?: string; state: 'playing' | 'paused' | 'stopped'; position?: number; duration?: number }) =>
+    send('POST', 'nowplaying', np),
+  scrobble: (file_id: number, played_at: number) => send('POST', 'scrobble', { file_id, played_at }),
+  lastfm: () => get<LastFMStatus>('lastfm'),
+  lastfmDisconnect: () => send('POST', 'lastfm/disconnect', {}),
+  lastfmEnabled: (enabled: boolean) => send('POST', 'lastfm/enabled', { enabled }),
   hidden: () => get<HiddenItem[]>('hidden'),
   hide: (kind: HiddenItem['kind'], value: string) => send('POST', 'hidden', { kind, value }),
   unhide: (kind: HiddenItem['kind'], value: string) => send('DELETE', 'hidden', undefined, { kind, value }),

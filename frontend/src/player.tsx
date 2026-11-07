@@ -85,6 +85,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // than on the file, so the same song queued twice in a row still restarts on "next".
   const [loadToken, setLoadToken] = useState(0)
   const reload = useCallback(() => setLoadToken((t) => t + 1), [])
+  // One "play" = one load of a queue entry. Last.fm needs to know how long it was actually listened to.
+  const play_ = useRef({ id: '', startedAt: 0, listened: 0, lastT: 0, scrobbled: false })
   const resumeAt = useRef(saved.time)     // restore position after a page reload
 
   const current = queue[index] ?? null
@@ -96,6 +98,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setError(null)
     if (!current) { el.removeAttribute('src'); el.load(); return }
     el.src = streamUrl(current.id)  // also restarts when it's the same file as before
+    play_.current = { id: `${current.id}-${loadToken}-${Date.now()}`, startedAt: 0, listened: 0, lastT: 0, scrobbled: false }
     if (autoplay.current) el.play().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadToken])
@@ -185,6 +188,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const seek = useCallback((t: number) => { if (audio.current) audio.current.currentTime = t }, [])
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), [])
 
+  // Tell the server what's playing (Last.fm "now playing", the Discord helper).
+  const report = useCallback((state: 'playing' | 'paused' | 'stopped') => {
+    const el = audio.current
+    const cur = queueRef.current[indexRef.current]
+    if (!cur || state === 'stopped') { api.nowPlaying({ file_id: null, state: 'stopped' }).catch(() => {}); return }
+    api.nowPlaying({ file_id: cur.id, play_id: play_.current.id, state,
+      position: el?.currentTime ?? 0, duration: el?.duration || 0 }).catch(() => {})
+  }, [])
+  const queueRef = useRef(queue); queueRef.current = queue
+  const indexRef = useRef(index); indexRef.current = index
+
+  useEffect(() => { if (!current) report('stopped') }, [current, report])
+  useEffect(() => {                                   // heartbeat while playing
+    if (!playing) return
+    const id = setInterval(() => report('playing'), 30000)
+    return () => clearInterval(id)
+  }, [playing, report])
+  useEffect(() => {                                   // closing the tab stops it
+    const bye = () => navigator.sendBeacon?.('/api/nowplaying', new Blob([JSON.stringify({ state: 'stopped' })], { type: 'application/json' }))
+    window.addEventListener('pagehide', bye)
+    return () => window.removeEventListener('pagehide', bye)
+  }, [])
+
+  // Count real listening time (seeking doesn't count) and scrobble at half the track or 4 minutes.
+  const onTime = (el: HTMLAudioElement) => {
+    const pl = play_.current
+    const d = el.currentTime - pl.lastT
+    if (!el.paused && d > 0 && d < 2) pl.listened += d
+    pl.lastT = el.currentTime
+    const dur = el.duration
+    if (!pl.scrobbled && cur() && isFinite(dur) && dur > 30 && pl.listened >= Math.min(dur / 2, 240)) {
+      pl.scrobbled = true
+      api.scrobble(cur()!.id, Math.floor(pl.startedAt || Date.now() / 1000)).catch(() => {})
+    }
+  }
+  const cur = () => queueRef.current[indexRef.current]
+
   // Show the track in the browser tab only while it's actually playing.
   useEffect(() => {
     if (!current || !playing) { document.title = 'SoulTracker'; return }
@@ -222,9 +262,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       <audio
         ref={audio}
         preload="metadata"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+        onPlay={() => {
+          setPlaying(true)
+          if (!play_.current.startedAt) play_.current.startedAt = Date.now() / 1000
+          report('playing')
+        }}
+        onPause={(e) => { setPlaying(false); if (!e.currentTarget.ended) report('paused') }}
+        onSeeked={(e) => { play_.current.lastT = e.currentTarget.currentTime; report(e.currentTarget.paused ? 'paused' : 'playing') }}
+        onTimeUpdate={(e) => { setTime(e.currentTarget.currentTime); onTime(e.currentTarget) }}
         onDurationChange={(e) => setDuration(e.currentTarget.duration || 0)}
         onLoadedMetadata={(e) => {
           if (resumeAt.current) { e.currentTarget.currentTime = resumeAt.current; resumeAt.current = 0 }

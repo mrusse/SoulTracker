@@ -22,12 +22,13 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
-from . import media, queries
+from . import lastfm, media, queries
 from .db import connect, get_state, set_state
+from pydantic import BaseModel
 from .ingest import Ingestor
 from .shares import Shares
 
@@ -71,6 +72,7 @@ def ingest_loop(stop: threading.Event) -> None:
     log.info("reading %s", log_path())
     shares = Shares(SHARE_ROOTS)
     last_share_scan = 0.0
+    last_scrobble_retry = [0.0]
     while not stop.is_set():
         try:
             before = ing.lines
@@ -83,6 +85,7 @@ def ingest_loop(stop: threading.Event) -> None:
                     last_share_scan = time.time()
                 while shares.update_sizes(conn) == 500:
                     pass
+            lastfm.retry_loop_step(conn, last_scrobble_retry)
         except Exception:
             log.exception("ingest failed")
         stop.wait(POLL)
@@ -220,6 +223,125 @@ def api_cover(file_id: int, conn=Depends(db)):
         raise HTTPException(404, "no cover art")
     data, mime = found
     return Response(data, media_type=mime, headers={"Cache-Control": "private, max-age=86400"})
+
+
+# ---- now playing (read by Last.fm here and by the Discord helper) ----
+
+class NowPlayingIn(BaseModel):
+    file_id: int | None = None
+    play_id: str | None = None      # changes on every new play, even of the same file
+    state: str = "stopped"          # playing | paused | stopped
+    position: float = 0
+    duration: float = 0
+
+
+class ScrobbleIn(BaseModel):
+    file_id: int
+    played_at: int                  # unix time the track started
+
+
+_np_lock = threading.Lock()
+_np: dict = {"state": "stopped"}
+NP_STALE = 90  # seconds without a heartbeat before a "playing" track counts as stopped
+
+
+def _track_tags(conn, file_id: int) -> dict:
+    try:
+        return media.tags(_real_file(conn, file_id))
+    except HTTPException:
+        return {}
+
+
+@app.post("/api/nowplaying")
+def api_nowplaying_set(np: NowPlayingIn, conn=Depends(db)):
+    with _np_lock:
+        new_play = np.state == "playing" and np.play_id and np.play_id != _np.get("play_id")
+        same_file = np.file_id == _np.get("file_id")
+        tags = _np.get("tags") if same_file else None
+    if np.file_id is not None and tags is None:
+        tags = _track_tags(conn, np.file_id)
+    row = conn.execute("SELECT name, folder FROM files WHERE id=?", (np.file_id,)).fetchone() if np.file_id else None
+    with _np_lock:
+        _np.clear()
+        _np.update(np.model_dump(), tags=tags or {}, updated=time.time(),
+                   name=row["name"] if row else None, folder=row["folder"] if row else None)
+    if new_play and tags:
+        threading.Thread(target=_lastfm_now_playing, args=(tags,), daemon=True).start()
+    return {"ok": True}
+
+
+def _lastfm_now_playing(tags: dict) -> None:
+    c = connect(DB_PATH)
+    try:
+        lastfm.now_playing(c, tags)
+    finally:
+        c.close()
+
+
+@app.get("/api/nowplaying")
+def api_nowplaying_get():
+    with _np_lock:
+        np = dict(_np)
+    if np.get("state") == "stopped" or not np.get("file_id"):
+        return {"state": "stopped"}
+    age = time.time() - np.get("updated", 0)
+    state = np["state"]
+    position = np.get("position", 0)
+    if state == "playing":
+        if age > NP_STALE:
+            return {"state": "stopped"}
+        position = min(position + age, np.get("duration") or position + age)
+    tags = np.get("tags") or {}
+    return {
+        "state": state, "file_id": np["file_id"], "name": np.get("name"), "folder": np.get("folder"),
+        "title": tags.get("title"), "artist": tags.get("artist"), "album": tags.get("album"),
+        "position": round(position, 1), "duration": np.get("duration") or tags.get("duration"),
+        "art_url": lastfm.album_art(tags.get("albumartist") or tags.get("artist"), tags.get("album")),
+    }
+
+
+@app.post("/api/scrobble")
+def api_scrobble(s: ScrobbleIn, conn=Depends(db)):
+    return {"status": lastfm.record_scrobble(conn, s.file_id, s.played_at, _track_tags(conn, s.file_id))}
+
+
+# ---- Last.fm account ----
+
+@app.get("/api/lastfm")
+def api_lastfm(conn=Depends(db)):
+    return lastfm.status(conn)
+
+
+@app.get("/api/lastfm/connect")
+def api_lastfm_connect(request: Request):
+    if not lastfm.configured():
+        raise HTTPException(400, "set SOULTRACKER_LASTFM_KEY and SOULTRACKER_LASTFM_SECRET first")
+    return RedirectResponse(lastfm.auth_url(str(request.url_for("api_lastfm_callback"))))
+
+
+@app.get("/api/lastfm/callback")
+def api_lastfm_callback(token: str = "", conn=Depends(db)):
+    try:
+        lastfm.finish_auth(conn, token)
+        conn.commit()
+        return RedirectResponse("/#/settings")
+    except Exception as e:
+        log.warning("last.fm connect failed: %s", e)
+        return RedirectResponse("/#/settings?lastfm_error=1")
+
+
+@app.post("/api/lastfm/disconnect")
+def api_lastfm_disconnect(conn=Depends(db)):
+    with conn:
+        lastfm.disconnect(conn)
+    return {"ok": True}
+
+
+@app.post("/api/lastfm/enabled")
+def api_lastfm_enabled(body: dict, conn=Depends(db)):
+    with conn:
+        lastfm.set_enabled(conn, bool(body.get("enabled")))
+    return {"ok": True}
 
 
 @app.get("/api/search")

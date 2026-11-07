@@ -1,6 +1,7 @@
 import { api } from '../api'
 import { Seg } from '../components'
 import Diagnostics from './Diagnostics'
+import LastFM from './LastFM'
 import { folderName } from '../format'
 import { useData, useName, useSettings, type FileSort, type Theme } from '../state'
 
@@ -32,6 +33,8 @@ export default function Settings() {
             <dd><Seg<Theme> value={s.theme} onChange={(theme) => s.set({ theme })} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} /></dd>
           </dl>
         </div>
+
+        <LastFM />
 
         <div className="card">
           <h2>Removed from stats</h2>

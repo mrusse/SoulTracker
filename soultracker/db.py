@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE users (
@@ -73,6 +73,26 @@ CREATE TABLE state (
 );
 """
 
+# Upgrades for existing databases: version -> SQL that brings a database to that version.
+MIGRATIONS = {
+    2: """
+CREATE TABLE scrobbles (
+    id           INTEGER PRIMARY KEY,
+    file_id      INTEGER,
+    played_at    INTEGER NOT NULL,   -- unix time the track started playing
+    artist       TEXT,
+    title        TEXT,
+    album        TEXT,
+    albumartist  TEXT,
+    duration     INTEGER,
+    status       TEXT NOT NULL,      -- pending | sent | skipped
+    error        TEXT,
+    attempts     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX scrobbles_status ON scrobbles(status, played_at);
+""",
+}
+
 COMPLETED_STATUSES = ("completed", "uploading")
 
 
@@ -83,12 +103,16 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version == 0:
-        conn.executescript(SCHEMA)
+    if version > SCHEMA_VERSION:
+        raise RuntimeError(f"database schema v{version} is newer than this SoulTracker (v{SCHEMA_VERSION})")
+    if version < SCHEMA_VERSION:
+        if version == 0:
+            conn.executescript(SCHEMA)
+            version = 1
+        for v in range(version + 1, SCHEMA_VERSION + 1):
+            conn.executescript(MIGRATIONS[v])
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
-    elif version != SCHEMA_VERSION:
-        raise RuntimeError(f"database schema v{version}, expected v{SCHEMA_VERSION}")
     return conn
 
 

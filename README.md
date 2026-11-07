@@ -42,6 +42,7 @@ If a shared folder is nested (Soulseek shares `.../Archive/Archive`), or you'd r
 | `SOULTRACKER_SHARES` | `/shares` | where to look up file sizes (comma separated for more than one) |
 | `SOULTRACKER_PASSWORD` | | set it to require a password |
 | `SOULTRACKER_POLL` | `2` | seconds between log reads |
+| `SOULTRACKER_LASTFM_KEY` / `SOULTRACKER_LASTFM_SECRET` | | to scrobble songs played in SoulTracker ([get an API account](https://www.last.fm/api/account/create)), then **Settings → Connect Last.fm** |
 
 ## How accurate is it?
 
