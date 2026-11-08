@@ -339,3 +339,15 @@ button.cover { border: 0; padding: 0; cursor: pointer; }
   background: none; border: 0; border-bottom: 1px dashed var(--grid); padding: 6px; margin-bottom: 4px; cursor: pointer;
 }
 .queue-hidden:hover { color: var(--text-primary); }
+
+/* shuffle */
+.icon-btn { position: relative; }
+.shuffle-dot { position: absolute; bottom: 2px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+.queue-shuffle { color: var(--text-muted); display: inline-flex; flex: none; }
+.shuffle-body { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; overflow: auto; }
+.shuffle-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.shuffle-row > span:first-child { width: 86px; flex: none; color: var(--text-secondary); }
+.shuffle-note { margin: -4px 0 0; font-size: 12px; }
+.shuffle-users { display: inline-flex; align-items: center; gap: 6px; }
+.shuffle-users input { width: 64px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--text-primary); font: inherit; }
+.shuffle-warn { margin: 0; font-size: 12px; color: var(--critical); }

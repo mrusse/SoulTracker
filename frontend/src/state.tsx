@@ -5,6 +5,16 @@ import { pseudonym, type MaxUnit } from './format'
 export type Theme = 'system' | 'light' | 'dark'
 export type FileSort = 'name' | 'time'
 
+/** Player shuffle: keeps the queue topped up with random songs from the users & files tree. */
+export interface ShuffleSettings {
+  on: boolean
+  mode: 'recent' | 'random'       // from the N most recent users, or any song
+  users: number                    // N
+  window: 'any' | '24h' | '7d' | '30d'  // only songs uploaded within this time
+  noRepeats: boolean               // skip songs played recently
+}
+export const SHUFFLE_DEFAULTS: ShuffleSettings = { on: false, mode: 'recent', users: 10, window: 'any', noRepeats: true }
+
 interface Settings {
   privacy: boolean
   fullPath: boolean
@@ -14,6 +24,7 @@ interface Settings {
   expandAll: boolean    // Users & files: expand every user
   queueHistory: boolean // player queue: show songs already played
   maxUnit: MaxUnit      // Dashboard: largest unit for sizes
+  shuffle: ShuffleSettings
   theme: Theme
   set: (patch: Partial<Omit<Settings, 'set'>>) => void
 }
@@ -30,7 +41,11 @@ function load(): Partial<Settings> {
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [s, setS] = useState(() => ({ privacy: false, fullPath: false, fileSort: 'name' as FileSort, userSort: 'size', expandAll: false, queueHistory: false, maxUnit: 'auto' as MaxUnit, client: 'all' as 'all' | Client, theme: 'system' as Theme, ...load() }))
+  const [s, setS] = useState(() => {
+    const saved = load()
+    return { privacy: false, fullPath: false, fileSort: 'name' as FileSort, userSort: 'size', expandAll: false, queueHistory: false, maxUnit: 'auto' as MaxUnit, client: 'all' as 'all' | Client, theme: 'system' as Theme, ...saved,
+             shuffle: { ...SHUFFLE_DEFAULTS, ...saved.shuffle } }
+  })
   const set = useCallback((patch: Partial<Omit<Settings, 'set'>>) => {
     setS((prev) => {
       const next = { ...prev, ...patch }

@@ -18,7 +18,7 @@ import secrets
 import threading
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -419,6 +419,24 @@ def api_timeseries(bucket: str = "day", since: str | None = None, client: str | 
 @app.get("/api/charts/heatmap")
 def api_heatmap(since: str | None = None, client: str | None = None, conn=Depends(db)):
     return queries.heatmap(conn, since, client=client)
+
+
+SHUFFLE_WINDOWS = {"24h": 1, "7d": 7, "30d": 30}
+
+
+@app.post("/api/shuffle")
+def api_shuffle(body: dict, conn=Depends(db)):
+    """A few random songs for shuffle play. Body: mode (recent|random), users (N most recent),
+    window (any|24h|7d|30d), exclude (file ids), count."""
+    days = SHUFFLE_WINDOWS.get(body.get("window") or "")
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S") if days else None
+    try:
+        users, count = int(body.get("users") or 10), int(body.get("count") or 5)
+        exclude = [int(x) for x in (body.get("exclude") or [])][-2000:]
+    except (TypeError, ValueError):
+        raise HTTPException(400, "users, count and exclude must be numbers")
+    return queries.shuffle(conn, "random" if body.get("mode") == "random" else "recent",
+                           users=users, since=since, exclude=exclude, count=count)
 
 
 @app.get("/api/outcomes")

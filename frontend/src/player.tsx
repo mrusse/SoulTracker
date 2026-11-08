@@ -3,9 +3,10 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, type TrackMeta } from './api'
 import { bytes, folderName } from './format'
-import { navigate, useSettings } from './state'
+import { navigate, SHUFFLE_DEFAULTS, useSettings, type ShuffleSettings } from './state'
+import { Seg } from './components'
 
-export interface Track { id: number; name: string; folder: string | null }
+export interface Track { id: number; name: string; folder: string | null; shuffle?: boolean }  // shuffle: picked by shuffle
 
 // Formats browsers play natively; anything else isn't offered (matches the backend's list).
 const PLAYABLE = ['.mp3', '.flac', '.m4a', '.mp4', '.aac', '.ogg', '.oga', '.opus', '.wav']
@@ -20,6 +21,9 @@ export const isAudio = (name: string | null | undefined) =>
 const streamUrl = (id: number) => `/api/file/${id}/stream`
 export const coverUrl = (id: number) => `/api/file/${id}/cover`
 const KEY = 'soultracker.player'
+const SEEN_KEY = 'soultracker.shuffleSeen'   // recently played file ids, for "no repeats"
+const SEEN_MAX = 500
+const SHUFFLE_AHEAD = 3                       // keep this many songs lined up while shuffling
 
 interface Player {
   queue: Track[]
@@ -44,6 +48,8 @@ interface Player {
   remove: (i: number) => void
   clear: () => void
   clearHistory: () => void           // drop the songs already played
+  shuffleQueue: () => void           // shuffle the songs you queued (shuffle picks stay after them)
+  shuffleEmpty: boolean              // shuffle found nothing to play with its settings
   showInfo: (t: Track) => void
 }
 
@@ -89,6 +95,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // One "play" = one load of a queue entry. Last.fm needs to know how long it was actually listened to.
   const play_ = useRef({ id: '', startedAt: 0, listened: 0, lastT: 0, scrobbled: false })
   const resumeAt = useRef(saved.time)     // restore position after a page reload
+  const { shuffle: sh } = useSettings()
+  const seen = useRef<number[]>((() => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '[]') } catch { return [] } })())
 
   const current = queue[index] ?? null
 
@@ -101,6 +109,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     el.src = streamUrl(current.id)  // also restarts when it's the same file as before
     play_.current = { id: `${current.id}-${loadToken}-${Date.now()}`, startedAt: 0, listened: 0, lastT: 0, scrobbled: false }
     if (autoplay.current) el.play().catch(() => {})
+    seen.current = [...seen.current.filter((x) => x !== current.id), current.id].slice(-SEEN_MAX)
+    try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen.current)) } catch { /* storage unavailable */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadToken])
 
@@ -167,8 +177,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const ts = tracks.filter((t) => isPlayable(t.name))
     if (!ts.length) return
     if (!queue.length) { setQueue(ts); setIndex(0); reload(); return }
-    setQueue((q) => [...q, ...ts])
-  }, [queue.length, reload])
+    // your songs go before anything shuffle has lined up
+    setQueue((q) => {
+      let at = q.findIndex((t, i) => i > index && t.shuffle)
+      if (at < 0) at = q.length
+      return [...q.slice(0, at), ...ts, ...q.slice(at)]
+    })
+  }, [queue.length, index, reload])
 
   const remove = useCallback((i: number) => {
     setQueue((q) => q.filter((_, j) => j !== i))
@@ -192,6 +207,59 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setQueue(current ? [current] : [])
     setIndex(0)
   }, [current])
+  const shuffleQueue = useCallback(() => {
+    setQueue((q) => {
+      const ahead = q.slice(index + 1)
+      const mine = ahead.filter((t) => !t.shuffle)
+      for (let i = mine.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [mine[i], mine[j]] = [mine[j], mine[i]]
+      }
+      return [...q.slice(0, index + 1), ...mine, ...ahead.filter((t) => t.shuffle)]
+    })
+  }, [index])
+
+  // ---- shuffle: keep a few random songs lined up after yours ----
+  const [shuffleBusy, setShuffleBusy] = useState(false)
+  const [shuffleEmpty, setShuffleEmpty] = useState(false)
+  const shuffleGen = useRef(0)            // bumped when the settings change: ignore answers for the old ones
+  const pickKey = `${sh.on}|${sh.mode}|${sh.users}|${sh.window}`
+  const lastPickKey = useRef(pickKey)
+  useEffect(() => {
+    if (lastPickKey.current === pickKey) return
+    lastPickKey.current = pickKey
+    shuffleGen.current++
+    setShuffleEmpty(false)
+    // settings changed or shuffle turned off: drop the picks that haven't played yet
+    setQueue((q) => q.filter((t, i) => i <= index || !t.shuffle))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickKey])
+  useEffect(() => { setShuffleEmpty(false) }, [index, sh.noRepeats])
+  useEffect(() => {
+    if (!sh.on || shuffleBusy || shuffleEmpty) return
+    if (queue.length - index - 1 >= SHUFFLE_AHEAD) return   // your own songs (or enough picks) still to come
+    const gen = shuffleGen.current
+    const ask = (noRepeats: boolean) => api.shuffle({
+      mode: sh.mode, users: sh.users, window: sh.window, count: SHUFFLE_AHEAD + 2,
+      exclude: [...new Set([...queue.slice(index).map((t) => t.id), ...(noRepeats ? seen.current : [])])],
+    })
+    setShuffleBusy(true)
+    ;(async () => {
+      let ts = await ask(sh.noRepeats)
+      if (!ts.length && sh.noRepeats && seen.current.length) {
+        // everything's been played recently: start the "no repeats" memory over
+        seen.current = []
+        try { localStorage.removeItem(SEEN_KEY) } catch { /* storage unavailable */ }
+        ts = await ask(true)
+      }
+      if (gen !== shuffleGen.current) return
+      if (!ts.length) { setShuffleEmpty(true); return }
+      const picks = ts.map((t) => ({ ...t, shuffle: true }))
+      if (!queueRef.current.length) { setQueue(picks); setIndex(0); reload(); return }
+      setQueue((q) => [...q, ...picks])
+    })().catch(() => setShuffleEmpty(true)).finally(() => setShuffleBusy(false))
+  }, [sh.on, sh.mode, sh.users, sh.window, sh.noRepeats, queue, index, shuffleBusy, shuffleEmpty, reload])
+
   const seek = useCallback((t: number) => { if (audio.current) audio.current.currentTime = t }, [])
   const setVolume = useCallback((v: number) => setVolumeState(Math.max(0, Math.min(1, v))), [])
 
@@ -260,6 +328,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const value: Player = {
     queue, index, current, meta, playing, time, duration, volume, error,
     play, playAll, playNext, enqueue, jump: go, next, prev, toggle, seek, setVolume, remove, clear, clearHistory,
+    shuffleQueue, shuffleEmpty,
     showInfo: setInfo,
   }
 
@@ -282,7 +351,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           if (resumeAt.current) { e.currentTarget.currentTime = resumeAt.current; resumeAt.current = 0 }
         }}
         onEnded={next}
-        onError={() => { if (current) setError("Couldn't play this file") }}
+        onError={() => {
+          if (!current) return
+          setError("Couldn't play this file")
+          if (current.shuffle) next()   // a shuffle pick that's gone from the shares: just move on
+        }}
       />
       <FileInfoDialog track={info} onClose={() => setInfo(null)} />
     </Ctx.Provider>
@@ -298,6 +371,7 @@ const PLAY = 'M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 
 const PAUSE = 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z'
 const PREV = 'M6 5h2v14H6zM20 6.2v11.6a1 1 0 0 1-1.55.83L10 13a1 1 0 0 1 0-1.66l8.45-5.97A1 1 0 0 1 20 6.2z'
 const NEXT = 'M16 5h2v14h-2zM4 6.2v11.6a1 1 0 0 0 1.55.83L14 13a1 1 0 0 0 0-1.66L5.55 5.37A1 1 0 0 0 4 6.2z'
+const SHUFFLE = 'M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z'
 const QUEUE = 'M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-3v6l5-3z'
 const VOL = 'M4 9h4l5-4v14l-5-4H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z'
 const MUTE = 'M4 9h4l5-4v14l-5-4H4zm12.3.3 1.4-1.4L20 10.2l2.3-2.3 1.4 1.4L21.4 11.6l2.3 2.3-1.4 1.4L20 13l-2.3 2.3-1.4-1.4 2.3-2.3z'
@@ -331,7 +405,8 @@ export function Cover({ id, size, onClick, label, clickableOnlyWithArt = false }
 
 export function PlayerBar() {
   const p = usePlayer()
-  const [showQueue, setShowQueue] = useState(false)
+  const [panel, setPanel] = useState<'queue' | 'shuffle' | null>(null)
+  const { shuffle: sh } = useSettings()
   const [lastVolume, setLastVolume] = useState(1)
   if (!p.current) return null
   const t = p.current
@@ -374,12 +449,18 @@ export function PlayerBar() {
         <input className="volume" type="range" min={0} max={1} step={0.01} value={p.volume}
                onChange={(e) => p.setVolume(Number(e.target.value))} aria-label="Volume"
                style={{ ['--pct' as string]: `${p.volume * 100}%` }} />
-        <button className={`icon-btn ${showQueue ? 'on' : ''}`} onClick={() => setShowQueue(!showQueue)} aria-label="Queue">
+        <button className={`icon-btn ${panel === 'shuffle' || sh.on ? 'on' : ''}`} aria-label="Shuffle"
+                title={sh.on ? 'Shuffle is on' : 'Shuffle'} onClick={() => setPanel(panel === 'shuffle' ? null : 'shuffle')}>
+          <I d={SHUFFLE} />
+          {sh.on && <span className="shuffle-dot" />}
+        </button>
+        <button className={`icon-btn ${panel === 'queue' ? 'on' : ''}`} onClick={() => setPanel(panel === 'queue' ? null : 'queue')} aria-label="Queue">
           <I d={QUEUE} />
         </button>
       </div>
 
-      {showQueue && <QueuePanel onClose={() => setShowQueue(false)} />}
+      {panel === 'queue' && <QueuePanel onClose={() => setPanel(null)} />}
+      {panel === 'shuffle' && <ShufflePanel onClose={() => setPanel(null)} />}
     </div>
   )
 }
@@ -426,9 +507,77 @@ function QueuePanel({ onClose }: { onClose: () => void }) {
             <span className="queue-name" onClick={() => p.jump(i)} title={folderName(t.folder, true)}>
               {t.name}<span className="sub"> · {folderName(t.folder, false)}</span>
             </span>
+            {t.shuffle && <span className="queue-shuffle" title="Picked by shuffle"><I d={SHUFFLE} size={13} /></span>}
             <button className="icon-btn small" onClick={() => p.remove(i)} aria-label="Remove from queue"><I d={CLOSE} size={14} /></button>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+const WINDOWS: [ShuffleSettings['window'], string][] = [['any', 'Any time'], ['24h', '24 hours'], ['7d', '7 days'], ['30d', '30 days']]
+
+function ShufflePanel({ onClose }: { onClose: () => void }) {
+  const p = usePlayer()
+  const { shuffle: sh, set } = useSettings()
+  const change = (patch: Partial<ShuffleSettings>) => set({ shuffle: { ...sh, ...patch } })
+  const [users, setUsers] = useState(String(sh.users))
+  useEffect(() => setUsers(String(sh.users)), [sh.users])
+  const commitUsers = () => {
+    const n = Math.round(Number(users))
+    if (n >= 1 && n <= 1000) change({ users: n })
+    else setUsers(String(sh.users))
+  }
+  const mine = p.queue.slice(p.index + 1).filter((t) => !t.shuffle).length
+  return (
+    <div className="queue-panel">
+      <div className="queue-head">
+        <strong>Shuffle</strong>
+        <span className="sub">{sh.on ? 'On' : 'Off'}</span>
+        <span style={{ flex: 1 }} />
+        <button className="icon-btn" onClick={onClose} aria-label="Close shuffle"><I d={CLOSE} size={16} /></button>
+      </div>
+      <div className="shuffle-body">
+        <div className="shuffle-row">
+          <span>Shuffle</span>
+          <Seg value={sh.on ? 'on' : 'off'} onChange={(v) => change({ on: v === 'on' })} options={[['off', 'Off'], ['on', 'On']]} />
+        </div>
+        <p className="sub shuffle-note">
+          Plays random songs from Users &amp; files once your queue runs out. Songs you queue still play first.
+        </p>
+        <div className="shuffle-row">
+          <span>Pick from</span>
+          <Seg value={sh.mode} onChange={(v) => change({ mode: v })} options={[['recent', 'Recent users'], ['random', 'Totally random']]} />
+        </div>
+        {sh.mode === 'recent' && (
+          <div className="shuffle-row">
+            <span>Users</span>
+            <label className="shuffle-users">
+              The
+              <input type="number" min={1} max={1000} value={users} onChange={(e) => setUsers(e.target.value)}
+                     onBlur={commitUsers} onKeyDown={(e) => { if (e.key === 'Enter') commitUsers() }} aria-label="Number of recent users" />
+              most recent
+            </label>
+          </div>
+        )}
+        <div className="shuffle-row">
+          <span>Uploaded in</span>
+          <Seg value={sh.window} onChange={(v) => change({ window: v })} options={WINDOWS} />
+        </div>
+        <div className="shuffle-row">
+          <span>Repeats</span>
+          <label className="check"><input type="checkbox" checked={sh.noRepeats} onChange={(e) => change({ noRepeats: e.target.checked })} />
+            Skip songs played recently (last {SEEN_MAX})</label>
+        </div>
+        {sh.on && p.shuffleEmpty && <p className="shuffle-warn">No more songs to pick with these settings.</p>}
+      </div>
+      <div className="queue-actions">
+        <button className="btn small" onClick={p.shuffleQueue} disabled={mine < 2} title="Put the songs you've queued in random order">
+          Shuffle my queue{mine >= 2 ? ` (${mine})` : ''}
+        </button>
+        <span style={{ flex: 1 }} />
+        <button className="btn small" onClick={() => change(SHUFFLE_DEFAULTS)}>Reset</button>
       </div>
     </div>
   )

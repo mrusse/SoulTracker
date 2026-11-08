@@ -305,3 +305,59 @@ def unhide(conn: sqlite3.Connection, kind: str, value: str) -> None:
 
 def hidden(conn: sqlite3.Connection) -> list[dict]:
     return _rows(conn, "SELECT kind, value FROM hidden ORDER BY kind, value")
+
+
+# ---- shuffle ----
+
+SHUFFLE_EXT = (".mp3", ".flac", ".m4a", ".mp4", ".aac", ".ogg", ".oga", ".opus", ".wav")  # = media.PLAYABLE
+_PLAYABLE_SQL = "(" + " OR ".join(f"lower(f.name) LIKE '%{e}'" for e in SHUFFLE_EXT) + ")"
+_FILE_VISIBLE = """f.folder NOT IN (SELECT value FROM hidden WHERE kind='folder')
+    AND f.vpath NOT IN (SELECT value FROM hidden WHERE kind='file')"""
+_NOT_EXCLUDED = "f.id NOT IN (SELECT value FROM json_each(?))"
+
+
+def shuffle(conn: sqlite3.Connection, mode: str = "recent", users: int = 10, since: str | None = None,
+            exclude: list[int] | None = None, count: int = 5) -> list[dict]:
+    """Random playable songs from the users & files tree (hidden users/folders/files left out).
+
+    mode "recent": pick one of the `users` most recent downloaders at random, then one of their
+    songs, so a user who took 3,000 files doesn't drown out the rest. mode "random": any song.
+    `since` limits it to songs uploaded from then on; `exclude` = file ids not to pick (recently
+    played / already queued). Returns fewer than `count` (maybe none) when the pool runs out."""
+    import json
+    import random
+    excl = json.dumps([int(x) for x in (exclude or [])])
+    count = max(1, min(count, 50))
+    if mode == "random":
+        return _rows(conn, f"""
+            SELECT f.id, f.name, f.folder FROM agg_file a JOIN files f ON f.id = a.file_id
+            WHERE a.client = '*' AND a.uploads > 0 {"AND a.last >= ?" if since else ""}
+              AND {_PLAYABLE_SQL} AND {_FILE_VISIBLE} AND {_NOT_EXCLUDED}
+            ORDER BY RANDOM() LIMIT ?""", ((since,) if since else ()) + (excl, count))
+
+    pool = [r[0] for r in conn.execute(
+        "SELECT user_id FROM agg_user WHERE client = '*' AND uploads > 0 ORDER BY last DESC LIMIT ?",
+        (max(1, min(users, 1000)),))]
+    out: list[dict] = []
+    taken: set[int] = set()
+    cache: dict[int, list[dict]] = {}   # per user: a few random songs, drawn from as needed
+    while pool and len(out) < count:
+        uid = random.choice(pool)
+        songs = cache.get(uid)
+        if songs is None:
+            songs = cache[uid] = _rows(conn, f"""
+                SELECT f.id, f.name, f.folder FROM (
+                    SELECT DISTINCT t.file_id FROM transfers t
+                    WHERE t.user_id = ? AND {DONE} {"AND t.started_at >= ?" if since else ""}) x
+                JOIN files f ON f.id = x.file_id
+                WHERE {_PLAYABLE_SQL} AND {_FILE_VISIBLE} AND {_NOT_EXCLUDED}
+                ORDER BY RANDOM() LIMIT ?""", (uid,) + ((since,) if since else ()) + (excl, count))
+        while songs and songs[0]["id"] in taken:
+            songs.pop(0)
+        if not songs:
+            pool.remove(uid)   # nothing (left) to play from this user
+            continue
+        s = songs.pop(0)
+        taken.add(s["id"])
+        out.append(s)
+    return out
