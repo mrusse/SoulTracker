@@ -199,7 +199,7 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
   const files = sortFiles(folder.files, fileSort)
   const seen = new Set<number>()
   const tracks: Track[] = files.flatMap((f) => (f.file_id && !seen.has(f.file_id) && seen.add(f.file_id)
-    ? [{ id: f.file_id, name: f.name, folder: f.folder }] : []))
+    ? [{ id: f.file_id, name: f.name, folder: f.folder, user }] : []))
   return (
     <div>
       <FolderMenu tracks={tracks}>
@@ -216,7 +216,7 @@ function FolderNode({ user, folder, sel, select, fullPath }: {
       {isOpen && (
         <div className="children">
           {files.map((f, i) => {
-            const t: Track = { id: f.file_id, name: f.name, folder: f.folder }
+            const t: Track = { id: f.file_id, name: f.name, folder: f.folder, user }
             // A file downloaded many times appears once per download; mark only one row.
             const firstCopy = files.findIndex((g) => g.file_id === f.file_id) === i
             const nowPlaying = player.current?.id === f.file_id && firstCopy
@@ -281,8 +281,8 @@ function SearchResults({ results, select }: { results: Awaited<ReturnType<typeof
 function Detail({ sel, onRemoved, select }: { sel: Sel | null; onRemoved: () => void; select: (s: Sel) => void }) {
   if (!sel) return <div className="empty">Select a user, folder or file to see its stats.</div>
   if (sel.kind === 'user') return <UserInfo name={sel.value} onRemoved={onRemoved} />
-  if (sel.kind === 'folder') return <FolderInfo path={sel.value} onRemoved={onRemoved} select={select} />
-  return <FileInfo id={sel.value} onRemoved={onRemoved} select={select} />
+  if (sel.kind === 'folder') return <FolderInfo path={sel.value} user={sel.user} onRemoved={onRemoved} select={select} />
+  return <FileInfo id={sel.value} user={sel.user} onRemoved={onRemoved} select={select} />
 }
 
 function RemoveButton({ kind, value, label, onRemoved }: { kind: 'user' | 'folder' | 'file'; value: string; label: string; onRemoved: () => void }) {
@@ -322,7 +322,7 @@ function UserInfo({ name: user, onRemoved }: { name: string; onRemoved: () => vo
   )
 }
 
-function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () => void; select: (s: Sel) => void }) {
+function FolderInfo({ path, user, onRemoved, select }: { path: string; user?: string; onRemoved: () => void; select: (s: Sel) => void }) {
   const name = useName()
   const player = usePlayer()
   const { fileSort } = useSettings()
@@ -333,7 +333,7 @@ function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () =
   const files = fileSort === 'time'
     ? [...data.files].sort((a, b) => (b.last_upload ?? '').localeCompare(a.last_upload ?? ''))
     : [...data.files].sort((a, b) => byName.compare(a.name, b.name))
-  const tracks: Track[] = files.map((f) => ({ id: f.file_id, name: f.name, folder: data.folder }))
+  const tracks: Track[] = files.map((f) => ({ id: f.file_id, name: f.name, folder: data.folder, user }))
   const playable = tracks.filter((t) => isPlayable(t.name))
   return (
     <>
@@ -391,14 +391,14 @@ function FolderInfo({ path, onRemoved, select }: { path: string; onRemoved: () =
   )
 }
 
-function FileInfo({ id, onRemoved, select }: { id: number; onRemoved: () => void; select: (s: Sel) => void }) {
+function FileInfo({ id, user, onRemoved, select }: { id: number; user?: string; onRemoved: () => void; select: (s: Sel) => void }) {
   const name = useName()
   const player = usePlayer()
   const client = useClient()
   const { data, error } = useData(() => api.file(id, client), [id, client])
   if (error) return <div className="empty">{error}</div>
   if (!data) return <div className="empty">Loading…</div>
-  const t: Track = { id: data.file_id, name: data.name, folder: data.folder }
+  const t: Track = { id: data.file_id, name: data.name, folder: data.folder, user }
   return (
     <>
       {isAudio(data.name) ? (

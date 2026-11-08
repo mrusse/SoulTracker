@@ -329,15 +329,21 @@ def shuffle(conn: sqlite3.Connection, mode: str = "recent", users: int = 10, sin
     excl = json.dumps([int(x) for x in (exclude or [])])
     count = max(1, min(count, 50))
     if mode == "random":
+        # with whoever downloaded it last, so the player can link to it in their branch
         return _rows(conn, f"""
-            SELECT f.id, f.name, f.folder FROM agg_file a JOIN files f ON f.id = a.file_id
+            SELECT f.id, f.name, f.folder, (
+                SELECT u.name FROM transfers t JOIN users u ON u.id = t.user_id
+                WHERE t.file_id = f.id AND {DONE} AND u.name NOT IN (SELECT value FROM hidden WHERE kind='user')
+                ORDER BY t.started_at DESC LIMIT 1) AS user
+            FROM agg_file a JOIN files f ON f.id = a.file_id
             WHERE a.client = '*' AND a.uploads > 0 {"AND a.last >= ?" if since else ""}
               AND {_PLAYABLE_SQL} AND {_FILE_VISIBLE} AND {_NOT_EXCLUDED}
             ORDER BY RANDOM() LIMIT ?""", ((since,) if since else ()) + (excl, count))
 
-    pool = [r[0] for r in conn.execute(
-        "SELECT user_id FROM agg_user WHERE client = '*' AND uploads > 0 ORDER BY last DESC LIMIT ?",
-        (max(1, min(users, 1000)),))]
+    names = dict(conn.execute(
+        "SELECT a.user_id, u.name FROM agg_user a JOIN users u ON u.id = a.user_id "
+        "WHERE a.client = '*' AND a.uploads > 0 ORDER BY a.last DESC LIMIT ?", (max(1, min(users, 1000)),)).fetchall())
+    pool = list(names)
     out: list[dict] = []
     taken: set[int] = set()
     cache: dict[int, list[dict]] = {}   # per user: a few random songs, drawn from as needed
@@ -357,7 +363,7 @@ def shuffle(conn: sqlite3.Connection, mode: str = "recent", users: int = 10, sin
         if not songs:
             pool.remove(uid)   # nothing (left) to play from this user
             continue
-        s = songs.pop(0)
+        s = {**songs.pop(0), "user": names[uid]}
         taken.add(s["id"])
         out.append(s)
     return out

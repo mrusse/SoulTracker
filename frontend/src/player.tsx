@@ -3,10 +3,11 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, type TrackMeta } from './api'
 import { bytes, folderName } from './format'
-import { navigate, SHUFFLE_DEFAULTS, useSettings, type ShuffleSettings } from './state'
+import { navigate, SHUFFLE_DEFAULTS, useClient, useSettings, type ShuffleSettings } from './state'
 import { Seg } from './components'
 
-export interface Track { id: number; name: string; folder: string | null; shuffle?: boolean }  // shuffle: picked by shuffle
+// user: whose branch it was played from (the player bar links back there); shuffle: picked by shuffle
+export interface Track { id: number; name: string; folder: string | null; user?: string | null; shuffle?: boolean }
 
 // Formats browsers play natively; anything else isn't offered (matches the backend's list).
 const PLAYABLE = ['.mp3', '.flac', '.m4a', '.mp4', '.aac', '.ogg', '.oga', '.opus', '.wav']
@@ -408,19 +409,39 @@ export function PlayerBar() {
   const [panel, setPanel] = useState<'queue' | 'shuffle' | null>(null)
   const { shuffle: sh } = useSettings()
   const [lastVolume, setLastVolume] = useState(1)
+  const client = useClient()
   if (!p.current) return null
+  // Open the tree under the user it was played from, so their branch and the folder expand to it.
+  // Songs queued without one (search results, older queues) use whoever downloaded it last.
+  const whose = (fallback: () => Promise<string | null | undefined>) =>
+    t.user ? Promise.resolve(t.user) : fallback().catch(() => null)
+  const showFile = (id: number) => whose(() => api.file(id, client).then((d) => d?.last_user))
+    .then((user) => navigate('users', { ...(user ? { user } : {}), file: String(id) }))
+  const showFolder = (folder: string) => whose(() => api.folder(folder, client).then((d) => d?.last_user))
+    .then((user) => navigate('users', { ...(user ? { user } : {}), folder }))
   const t = p.current
   const title = p.meta?.title || t.name
-  const sub = [p.meta?.artist, p.meta?.album || folderName(t.folder, false)].filter(Boolean).join(' · ')
+  const artist = p.meta?.artist
+  const album = p.meta?.album || folderName(t.folder, false)
+  const sub = [artist, album].filter(Boolean).join(' · ')
   const dur = p.duration || p.meta?.duration || 0
 
   return (
     <div className="player">
       <div className="player-track">
-        <Cover id={t.id} size={48} onClick={() => p.showInfo(t)} label="File info" />
+        <Cover id={t.id} size={56} onClick={() => p.showInfo(t)} label="File info" />
         <div className="player-text">
-          <div className="player-title" title={title}>{title}</div>
-          <div className="player-sub" title={sub}>{p.error ?? sub}</div>
+          <div className="player-title">
+            <button className="player-link" title="Show in Users & files" onClick={() => showFile(t.id)}>{title}</button>
+          </div>
+          <div className="player-sub" title={sub}>
+            {p.error ?? <>
+              {artist}{artist && album ? ' · ' : ''}
+              {album && (t.folder
+                ? <button className="player-link" title="Show folder in Users & files" onClick={() => showFolder(t.folder!)}>{album}</button>
+                : album)}
+            </>}
+          </div>
         </div>
       </div>
 

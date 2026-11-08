@@ -123,7 +123,7 @@ export const api = {
   shuffle: async (body: { mode: string; users: number; window: string; exclude: number[]; count: number }) => {
     const res = await fetch('/api/shuffle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-    return (await res.json()) as { id: number; name: string; folder: string | null }[]
+    return (await res.json()) as { id: number; name: string; folder: string | null; user: string | null }[]
   },
   scrobble: (file_id: number, played_at: number) => send('POST', 'scrobble', { file_id, played_at }),
   lastfm: () => get<LastFMStatus>('lastfm'),

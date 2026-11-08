@@ -127,7 +127,7 @@ function RecentRow({ r }: { r: Recent }) {
   const name = useName()
   const { maxUnit } = useSettings()
   const player = usePlayer()
-  const t: Track | null = r.file_id && r.name ? { id: r.file_id, name: r.name, folder: r.folder } : null
+  const t: Track | null = r.file_id && r.name ? { id: r.file_id, name: r.name, folder: r.folder, user: r.user } : null
   const clicks = useClickOrDouble(
     () => { if (r.file_id) navigate('users', { file: String(r.file_id) }) },
     () => { if (t && isPlayable(t.name)) player.play([t]) },
